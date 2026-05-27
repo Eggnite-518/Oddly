@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- 全部流量强制 HTTPS（默认行为，显式声明以便后续维护时可见） -->
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

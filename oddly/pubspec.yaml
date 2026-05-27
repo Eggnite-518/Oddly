@@ -1,0 +1,56 @@
+name: oddly
+description: "Your subconscious detective"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State management
+  flutter_riverpod: ^2.6.1
+  riverpod_annotation: ^2.6.1
+
+  # Local database — sqflite uses Android system SQLite, no NDK needed
+  # sqflite has getDatabasesPath() built-in, so path_provider is not needed
+  sqflite: ^2.4.1
+  path: ^1.9.1
+
+  # HTTP client (DeepSeek API)
+  dio: ^5.8.0+1
+
+  # Environment variables (API key)
+  flutter_dotenv: ^5.2.1
+
+  # Fonts
+  google_fonts: ^6.2.1
+
+  # Utilities
+  intl: ^0.20.2
+  uuid: ^4.5.1
+
+  # Phase 2 add-backs (avoid NDK issues for now):
+  # geolocator: ^14.0.1
+  # speech_to_text: ^7.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  build_runner: ^2.4.14
+  riverpod_generator: ^2.6.3
+  custom_lint: ^0.7.5
+  riverpod_lint: ^2.6.3
+
+# Pin path_provider_android to 2.2.x which doesn't require jni/NDK 28
+dependency_overrides:
+  path_provider_android: ">=2.2.0 <2.3.0"
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - .env
