@@ -9,7 +9,6 @@ import '../../core/theme/app_theme.dart';
 import '../../data/database/app_database.dart';
 import '../../services/context_service.dart';
 import '../detail/detail_screen.dart';
-import '../timeline/timeline_screen.dart';
 import 'home_stats_provider.dart';
 
 class CaptureScreen extends ConsumerStatefulWidget {
@@ -223,67 +222,11 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
   Widget _buildTopBar() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          // Logo / 品牌名
-          Row(
-            children: [
-              HandwrittenText(
-                'Oddly',
-                fontSize: 26,
-                color: AppColors.accent,
-                fontWeight: FontWeight.w700,
-              ),
-            ],
-          ),
-          // 进入 Timeline 按钮
-          GestureDetector(
-            onTap: () {
-              Navigator.push(
-                context,
-                PageRouteBuilder(
-                  pageBuilder: (context, animation, _) =>
-                      const TimelineScreen(),
-                  transitionsBuilder: (context, animation, _, child) =>
-                      SlideTransition(
-                    position: Tween<Offset>(
-                      begin: const Offset(1, 0),
-                      end: Offset.zero,
-                    ).animate(CurvedAnimation(
-                        parent: animation, curve: Curves.easeOutCubic)),
-                    child: child,
-                  ),
-                  transitionDuration: const Duration(milliseconds: 300),
-                ),
-              );
-            },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-              decoration: BoxDecoration(
-                color: AppColors.cardBg,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: AppColors.cardBorder, width: 1.2),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.timeline_rounded,
-                      size: 16, color: AppColors.accentDeep),
-                  const SizedBox(width: 6),
-                  Text(
-                    '回溯',
-                    style: GoogleFonts.nunito(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.accentDeep,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
+      child: HandwrittenText(
+        'Oddly',
+        fontSize: 26,
+        color: AppColors.accent,
+        fontWeight: FontWeight.w700,
       ),
     );
   }

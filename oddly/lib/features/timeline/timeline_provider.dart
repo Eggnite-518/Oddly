@@ -60,7 +60,7 @@ class TimelineNotifier extends StateNotifier<TimelineState> {
   }
 
   void selectTag(String? tag) {
-    if (tag == state.selectedTag) {
+    if (tag == null || tag == state.selectedTag) {
       state = state.copyWith(clearTag: true);
     } else {
       state = state.copyWith(selectedTag: tag);

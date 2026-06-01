@@ -26,7 +26,7 @@ class TimelineScreen extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildTopBar(context),
+                _buildTopBar(),
                 if (state.allTags.isNotEmpty) _buildTagFilter(ref, state),
                 Expanded(
                   child: state.isLoading
@@ -45,30 +45,15 @@ class TimelineScreen extends ConsumerWidget {
 
   // ── 顶栏 ─────────────────────────────────────────────────────────────────
 
-  Widget _buildTopBar(BuildContext context) {
+  Widget _buildTopBar() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
       child: Row(
         children: [
-          GestureDetector(
-            onTap: () => Navigator.pop(context),
-            child: Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: AppColors.cardBg,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: AppColors.cardBorder, width: 1.2),
-              ),
-              child: const Icon(Icons.arrow_back_rounded,
-                  size: 18, color: AppColors.textPrimary),
-            ),
-          ),
-          const SizedBox(width: 14),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              HandwrittenText('意识流水账',
+              HandwrittenText('碎念集',
                   fontSize: 22, color: AppColors.accentDeep),
               const SizedBox(height: 1),
               Text('你所有的奇怪想法都在这里',

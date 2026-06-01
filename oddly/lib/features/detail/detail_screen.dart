@@ -25,6 +25,8 @@ class _DetailScreenState extends ConsumerState<DetailScreen>
   late AnimationController _insightAnimController;
   late Animation<double> _insightFadeAnim;
   late Animation<Offset> _insightSlideAnim;
+  // 视角切换方向：1 = 向前（右→左），-1 = 向后（左→右）
+  int _slideDirection = 1;
 
   @override
   void initState() {
@@ -54,11 +56,30 @@ class _DetailScreenState extends ConsumerState<DetailScreen>
     super.dispose();
   }
 
+  /// 当前 AnimatedSwitcher 的目标 key，基于 provider 状态推导
+  Object _perspectiveKey(DetailState state) => state.isSwitchingPerspective
+      ? const ValueKey('loading')
+      : ValueKey(state.perspectiveIndex);
+
+  void _goForward(DetailState state) {
+    if (!state.hasMorePerspectives || state.isSwitchingPerspective) return;
+    HapticFeedback.lightImpact();
+    setState(() => _slideDirection = 1);
+    ref.read(thoughtDetailProvider(widget.thoughtId).notifier).switchPerspective();
+  }
+
+  void _goBackward(DetailState state) {
+    if (state.perspectiveIndex <= 0 || state.isSwitchingPerspective) return;
+    HapticFeedback.lightImpact();
+    setState(() => _slideDirection = -1);
+    ref.read(thoughtDetailProvider(widget.thoughtId).notifier).previousPerspective();
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(thoughtDetailProvider(widget.thoughtId));
 
-    // 当切换到展示洞察时触发入场动画
+    // 洞察首次生成完成时触发整体入场动画；视角切换由 AnimatedSwitcher 自己处理
     ref.listen(thoughtDetailProvider(widget.thoughtId), (prev, next) {
       if (prev?.phase != DetailPhase.showingInsight &&
           next.phase == DetailPhase.showingInsight) {
@@ -209,7 +230,7 @@ class _DetailScreenState extends ConsumerState<DetailScreen>
           DetailPhase.generatingInsight =>
             _buildLoading('正在生成你的专属洞察…'),
           DetailPhase.showingInsight when state.insightCard != null =>
-            _buildInsightCard(state.insightCard!, state.thought?.emotionTags ?? [], state.thought),
+            _buildInsightCard(state),
           DetailPhase.error =>
             _buildError(state.errorMessage ?? '出错了'),
           _ => const SizedBox.shrink(),
@@ -496,7 +517,13 @@ class _DetailScreenState extends ConsumerState<DetailScreen>
 
   // ── 洞察卡片 ──────────────────────────────────────────────────────────────
 
-  Widget _buildInsightCard(InsightCard card, List<String> emotionTags, Thought? thought) {
+  Widget _buildInsightCard(DetailState state) {
+    final card = state.insightCard!;
+    final thought = state.thought;
+    final total = state.totalPerspectives;
+    final isSwitching = state.isSwitchingPerspective;
+    final currentKey = _perspectiveKey(state);
+
     return FadeTransition(
       opacity: _insightFadeAnim,
       child: SlideTransition(
@@ -504,7 +531,7 @@ class _DetailScreenState extends ConsumerState<DetailScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 洞察卡片标题
+            // 标题行
             Row(
               children: [
                 Container(
@@ -540,115 +567,55 @@ class _DetailScreenState extends ConsumerState<DetailScreen>
             ),
             const SizedBox(height: 14),
 
-            Container(
-              decoration: AppDecorations.insightCard(),
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // 深层解读
-                  Text(
-                    card.interpretation,
-                    style: GoogleFonts.nunito(
-                      fontSize: 15,
-                      color: AppColors.textPrimary,
-                      height: 1.7,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // 心理学视角
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: AppColors.accentLight.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.auto_awesome_rounded,
-                                size: 14, color: AppColors.accent),
-                            const SizedBox(width: 6),
-                            Text(
-                              card.psychologyTheory,
-                              style: GoogleFonts.nunito(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.accent,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          card.psychologyExplanation,
-                          style: GoogleFonts.nunito(
-                            fontSize: 14,
-                            color: AppColors.textSecondary,
-                            height: 1.6,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // 行动指南
-                  Row(
+            // 卡片内容区：带方向感的滑动切换动画 + 手势
+            GestureDetector(
+              onHorizontalDragEnd: (details) {
+                final v = details.primaryVelocity ?? 0;
+                if (v < -300) _goForward(state);
+                if (v > 300) _goBackward(state);
+              },
+              child: ClipRect(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 320),
+                  transitionBuilder: (child, animation) {
+                    final isEntering = child.key == currentKey;
+                    final curve = CurvedAnimation(
+                      parent: animation,
+                      curve: Curves.easeOutCubic,
+                    );
+                    final enterOffset = Offset(_slideDirection.toDouble(), 0);
+                    final exitOffset = Offset(-_slideDirection.toDouble(), 0);
+                    return SlideTransition(
+                      position: isEntering
+                          ? Tween(begin: enterOffset, end: Offset.zero)
+                              .animate(curve)
+                          : Tween(begin: Offset.zero, end: exitOffset)
+                              .animate(curve),
+                      child: child,
+                    );
+                  },
+                  layoutBuilder: (currentChild, previousChildren) => Stack(
+                    alignment: Alignment.topCenter,
                     children: [
-                      Icon(Icons.spa_outlined,
-                          size: 14, color: AppColors.accentDeep),
-                      const SizedBox(width: 6),
-                      Text(
-                        '可以试试',
-                        style: GoogleFonts.nunito(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.accentDeep,
-                        ),
-                      ),
+                      ...previousChildren,
+                      ?currentChild,
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  ...card.actionGuide.map((action) => Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.only(top: 6),
-                              child: Container(
-                                width: 5,
-                                height: 5,
-                                decoration: BoxDecoration(
-                                  color: AppColors.accent,
-                                  borderRadius: BorderRadius.circular(3),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                action,
-                                style: GoogleFonts.nunito(
-                                  fontSize: 14,
-                                  color: AppColors.textPrimary,
-                                  height: 1.6,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      )),
-                ],
+                  child: isSwitching
+                      ? _buildPerspectiveLoading()
+                      : _buildInsightCardContent(card, state),
+                ),
               ),
             ),
 
+            // 多视角导航栏
+            if (total > 1) ...[
+              const SizedBox(height: 14),
+              _buildPerspectiveNav(state),
+            ],
+
             // 免责声明
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             Text(
               '以上只是一种探索视角，不是诊断或建议，你才是自己最好的解读者。',
               style: GoogleFonts.nunito(
@@ -659,6 +626,209 @@ class _DetailScreenState extends ConsumerState<DetailScreen>
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInsightCardContent(InsightCard card, DetailState state) {
+    return Container(
+      key: ValueKey(state.perspectiveIndex),
+      decoration: AppDecorations.insightCard(),
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 深层解读
+          Text(
+            card.interpretation,
+            style: GoogleFonts.nunito(
+              fontSize: 15,
+              color: AppColors.textPrimary,
+              height: 1.7,
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // 心理学视角框
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.accentLight.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.auto_awesome_rounded,
+                        size: 14, color: AppColors.accent),
+                    const SizedBox(width: 6),
+                    Text(
+                      card.psychologyTheory,
+                      style: GoogleFonts.nunito(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.accent,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  card.psychologyExplanation,
+                  style: GoogleFonts.nunito(
+                    fontSize: 14,
+                    color: AppColors.textSecondary,
+                    height: 1.6,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // 行动指南
+          Row(
+            children: [
+              Icon(Icons.spa_outlined, size: 14, color: AppColors.accentDeep),
+              const SizedBox(width: 6),
+              Text(
+                '可以试试',
+                style: GoogleFonts.nunito(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.accentDeep,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ...card.actionGuide.map((action) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Container(
+                        width: 5,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: AppColors.accent,
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        action,
+                        style: GoogleFonts.nunito(
+                          fontSize: 14,
+                          color: AppColors.textPrimary,
+                          height: 1.6,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              )),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPerspectiveLoading() {
+    return Container(
+      key: const ValueKey('loading'),
+      height: 180,
+      decoration: AppDecorations.insightCard(),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 1.8,
+                color: AppColors.accent,
+              ),
+            ),
+            const SizedBox(height: 12),
+            HandwrittenText('换个角度看…',
+                fontSize: 14, color: AppColors.textSecondary),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPerspectiveNav(DetailState state) {
+    final isFirst = state.perspectiveIndex == 0;
+    final isLast = !state.hasMorePerspectives;
+    final isSwitching = state.isSwitchingPerspective;
+    final theory = isSwitching ? '…' : (state.insightCard?.psychologyTheory ?? '');
+    final current = state.perspectiveIndex + 1;
+    final total = state.totalPerspectives;
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _buildNavArrow(
+          icon: Icons.chevron_left_rounded,
+          enabled: !isFirst && !isSwitching,
+          onTap: () => _goBackward(state),
+        ),
+        const SizedBox(width: 12),
+        Flexible(
+          child: Text(
+            '$theory · $current / $total',
+            style: GoogleFonts.nunito(
+              fontSize: 12,
+              color: AppColors.textSecondary,
+              fontWeight: FontWeight.w500,
+            ),
+            textAlign: TextAlign.center,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        const SizedBox(width: 12),
+        _buildNavArrow(
+          icon: Icons.chevron_right_rounded,
+          enabled: !isLast && !isSwitching,
+          onTap: () => _goForward(state),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNavArrow({
+    required IconData icon,
+    required bool enabled,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: enabled ? onTap : null,
+      child: Container(
+        width: 34,
+        height: 34,
+        decoration: BoxDecoration(
+          color: AppColors.cardBg,
+          borderRadius: BorderRadius.circular(17),
+          border: Border.all(
+            color: enabled
+                ? AppColors.accent.withValues(alpha: 0.35)
+                : AppColors.cardBorder,
+            width: 1.2,
+          ),
+        ),
+        child: Icon(
+          icon,
+          size: 18,
+          color: enabled ? AppColors.accent : AppColors.textHint,
         ),
       ),
     );

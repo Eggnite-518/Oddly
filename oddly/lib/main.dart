@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/theme/app_theme.dart';
-import 'features/capture/capture_screen.dart';
+import 'main_shell.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -35,7 +35,7 @@ class OddlyApp extends StatelessWidget {
       title: 'Oddly',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
-      home: const CaptureScreen(),
+      home: const MainShell(),
     );
   }
 }

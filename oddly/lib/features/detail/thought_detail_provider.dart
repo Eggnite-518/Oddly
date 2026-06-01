@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/database/app_database.dart';
 import '../../services/ai_service.dart';
+import '../../services/persona_service.dart';
 
 // ── State ──────────────────────────────────────────────────────────────────
 
@@ -23,6 +24,15 @@ class DetailState {
   final String? currentQuestion;
   final int? currentConvId;
   final String? errorMessage;
+  // 多视角相关
+  final int perspectiveIndex;
+  final List<String> recommendedFrameworks;
+  final bool isSwitchingPerspective;
+
+  int get totalPerspectives =>
+      recommendedFrameworks.isEmpty ? 1 : 1 + recommendedFrameworks.length;
+
+  bool get hasMorePerspectives => perspectiveIndex < totalPerspectives - 1;
 
   const DetailState({
     this.phase = DetailPhase.loading,
@@ -32,6 +42,9 @@ class DetailState {
     this.currentQuestion,
     this.currentConvId,
     this.errorMessage,
+    this.perspectiveIndex = 0,
+    this.recommendedFrameworks = const [],
+    this.isSwitchingPerspective = false,
   });
 
   DetailState copyWith({
@@ -42,6 +55,9 @@ class DetailState {
     String? currentQuestion,
     int? currentConvId,
     String? errorMessage,
+    int? perspectiveIndex,
+    List<String>? recommendedFrameworks,
+    bool? isSwitchingPerspective,
     bool clearInsight = false,
     bool clearQuestion = false,
     bool clearConvId = false,
@@ -56,6 +72,11 @@ class DetailState {
         currentConvId:
             clearConvId ? null : (currentConvId ?? this.currentConvId),
         errorMessage: errorMessage ?? this.errorMessage,
+        perspectiveIndex: perspectiveIndex ?? this.perspectiveIndex,
+        recommendedFrameworks:
+            recommendedFrameworks ?? this.recommendedFrameworks,
+        isSwitchingPerspective:
+            isSwitchingPerspective ?? this.isSwitchingPerspective,
       );
 }
 
@@ -90,6 +111,7 @@ class ThoughtDetailNotifier extends StateNotifier<DetailState> {
           thought: thought,
           conversations: conversations,
           insightCard: insightCard,
+          recommendedFrameworks: insightCard.recommendedFrameworks,
         );
         return;
       }
@@ -105,7 +127,12 @@ class ThoughtDetailNotifier extends StateNotifier<DetailState> {
 
   Future<void> _askFirstQuestion(Thought thought) async {
     try {
-      final result = await _ai.generateFirstQuestion(thought.content);
+      final personaPrefix =
+          await PersonaService.instance.buildPersonaPrefix();
+      final result = await _ai.generateFirstQuestion(
+        thought.content,
+        personaPrefix: personaPrefix,
+      );
       final convId = await _db.insertConversation(AiConversation(
         thoughtId: thoughtId,
         round: 1,
@@ -209,11 +236,15 @@ class ThoughtDetailNotifier extends StateNotifier<DetailState> {
         'answer': c.answer,
       }).toList();
 
+      final personaPrefix =
+          await PersonaService.instance.buildPersonaPrefix();
+
       final result = await _ai.generateInsightCard(
         thoughtContent: thought.content,
         conversationHistory: history,
         weather: thought.weather,
         locationName: thought.locationName,
+        personaPrefix: personaPrefix,
       );
 
       await _db.insertInsightCard(InsightCard(
@@ -222,7 +253,10 @@ class ThoughtDetailNotifier extends StateNotifier<DetailState> {
         psychologyTheory: result.psychologyTheory,
         psychologyExplanation: result.psychologyExplanation,
         actionGuide: result.actionGuide,
+        corePattern: result.corePattern,
         createdAt: DateTime.now(),
+        perspectiveIndex: 0,
+        recommendedFrameworks: result.recommendedNextFrameworks,
       ));
 
       await _db.markThoughtAnalyzed(thoughtId, result.emotionTags);
@@ -234,7 +268,18 @@ class ThoughtDetailNotifier extends StateNotifier<DetailState> {
         phase: DetailPhase.showingInsight,
         insightCard: card,
         thought: updatedThought,
+        perspectiveIndex: 0,
+        recommendedFrameworks: result.recommendedNextFrameworks,
       );
+
+      // 在洞察卡片展示后，异步触发潜流提取，不阻塞 UI
+      if (card != null) {
+        PersonaService.instance.extractAndMerge(
+          thoughtId: thoughtId,
+          card: card,
+          ai: _ai,
+        ).ignore();
+      }
     } catch (e, stack) {
       debugPrint('[Oddly] 洞察生成失败: $e');
       debugPrint('[Oddly] StackTrace: $stack');
@@ -247,6 +292,73 @@ class ThoughtDetailNotifier extends StateNotifier<DetailState> {
 
   // 手动重试生成洞察
   Future<void> retryInsight() async => _generateInsight();
+
+  // 回到上一个视角（必然已缓存）
+  Future<void> previousPerspective() async {
+    if (state.perspectiveIndex <= 0) return;
+    final prevIndex = state.perspectiveIndex - 1;
+    final cached = await _db.getInsightCardByPerspective(thoughtId, prevIndex);
+    if (cached != null) {
+      state = state.copyWith(insightCard: cached, perspectiveIndex: prevIndex);
+    }
+  }
+
+  // 切换到下一个视角
+  Future<void> switchPerspective() async {
+    if (!state.hasMorePerspectives || state.isSwitchingPerspective) return;
+
+    final nextIndex = state.perspectiveIndex + 1;
+    final targetFramework = state.recommendedFrameworks[nextIndex - 1];
+
+    // 先查缓存
+    final cached = await _db.getInsightCardByPerspective(thoughtId, nextIndex);
+    if (cached != null) {
+      state = state.copyWith(
+        insightCard: cached,
+        perspectiveIndex: nextIndex,
+      );
+      return;
+    }
+
+    // 缓存不存在，调用 AI 生成
+    state = state.copyWith(isSwitchingPerspective: true);
+
+    try {
+      final thought = state.thought!;
+      final history = state.conversations
+          .map((c) => {'question': c.question, 'answer': c.answer})
+          .toList();
+
+      final result = await _ai.generateAlternativePerspective(
+        thoughtContent: thought.content,
+        conversationHistory: history,
+        targetFramework: targetFramework,
+        weather: thought.weather,
+        locationName: thought.locationName,
+      );
+
+      await _db.insertInsightCard(InsightCard(
+        thoughtId: thoughtId,
+        interpretation: result.interpretation,
+        psychologyTheory: result.psychologyTheory,
+        psychologyExplanation: result.psychologyExplanation,
+        actionGuide: result.actionGuide,
+        corePattern: '',
+        createdAt: DateTime.now(),
+        perspectiveIndex: nextIndex,
+      ));
+
+      final saved = await _db.getInsightCardByPerspective(thoughtId, nextIndex);
+      state = state.copyWith(
+        insightCard: saved,
+        perspectiveIndex: nextIndex,
+        isSwitchingPerspective: false,
+      );
+    } catch (e) {
+      debugPrint('[Oddly] 换视角失败: $e');
+      state = state.copyWith(isSwitchingPerspective: false);
+    }
+  }
 
   Future<void> addTag(String tag) async {
     final thought = state.thought;

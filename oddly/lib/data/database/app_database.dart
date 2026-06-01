@@ -107,7 +107,12 @@ class InsightCard {
   final String psychologyTheory;
   final String psychologyExplanation;
   final List<String> actionGuide;
+  final String corePattern;
   final DateTime createdAt;
+  // 视角索引：0 = 主视角，1/2 = 备选视角
+  final int perspectiveIndex;
+  // 仅在 perspectiveIndex == 0 时有意义，记录 AI 推荐的后续框架顺序
+  final List<String> recommendedFrameworks;
 
   const InsightCard({
     this.id,
@@ -116,7 +121,10 @@ class InsightCard {
     required this.psychologyTheory,
     required this.psychologyExplanation,
     required this.actionGuide,
+    required this.corePattern,
     required this.createdAt,
+    this.perspectiveIndex = 0,
+    this.recommendedFrameworks = const [],
   });
 
   Map<String, dynamic> toMap() => {
@@ -126,7 +134,10 @@ class InsightCard {
         'psychology_theory': psychologyTheory,
         'psychology_explanation': psychologyExplanation,
         'action_guide': actionGuide.join('|||'),
+        'core_pattern': corePattern,
         'created_at': createdAt.toIso8601String(),
+        'perspective_index': perspectiveIndex,
+        'recommended_frameworks': recommendedFrameworks.join(','),
       };
 
   factory InsightCard.fromMap(Map<String, dynamic> m) => InsightCard(
@@ -139,7 +150,106 @@ class InsightCard {
             .split('|||')
             .where((s) => s.isNotEmpty)
             .toList(),
+        corePattern: m['core_pattern'] as String? ?? '',
         createdAt: DateTime.parse(m['created_at'] as String),
+        perspectiveIndex: m['perspective_index'] as int? ?? 0,
+        recommendedFrameworks: (m['recommended_frameworks'] as String? ?? '')
+            .split(',')
+            .where((s) => s.isNotEmpty)
+            .toList(),
+      );
+}
+
+// ── PersonaCurrent ──────────────────────────────────────────────────────────
+
+class PersonaCurrent {
+  final String id;
+  final String name;
+  final String description;
+  final int strength;
+  final DateTime firstSeenAt;
+  final DateTime lastSeenAt;
+  final List<String> linkedTheories;
+  final List<String> linkedEmotions;
+  final List<int> thoughtIds;
+  // null = 未确认, true = 用户认可, false = 用户否定
+  final bool? confirmed;
+
+  const PersonaCurrent({
+    required this.id,
+    required this.name,
+    required this.description,
+    required this.strength,
+    required this.firstSeenAt,
+    required this.lastSeenAt,
+    required this.linkedTheories,
+    required this.linkedEmotions,
+    required this.thoughtIds,
+    this.confirmed,
+  });
+
+  Map<String, dynamic> toMap() => {
+        'id': id,
+        'name': name,
+        'description': description,
+        'strength': strength,
+        'first_seen_at': firstSeenAt.toIso8601String(),
+        'last_seen_at': lastSeenAt.toIso8601String(),
+        'linked_theories': linkedTheories.join(','),
+        'linked_emotions': linkedEmotions.join(','),
+        'thought_ids': thoughtIds.join(','),
+        'confirmed': confirmed == null ? null : (confirmed! ? 1 : 0),
+      };
+
+  factory PersonaCurrent.fromMap(Map<String, dynamic> m) => PersonaCurrent(
+        id: m['id'] as String,
+        name: m['name'] as String,
+        description: m['description'] as String,
+        strength: m['strength'] as int,
+        firstSeenAt: DateTime.parse(m['first_seen_at'] as String),
+        lastSeenAt: DateTime.parse(m['last_seen_at'] as String),
+        linkedTheories: (m['linked_theories'] as String?)
+                ?.split(',')
+                .where((s) => s.isNotEmpty)
+                .toList() ??
+            [],
+        linkedEmotions: (m['linked_emotions'] as String?)
+                ?.split(',')
+                .where((s) => s.isNotEmpty)
+                .toList() ??
+            [],
+        thoughtIds: (m['thought_ids'] as String?)
+                ?.split(',')
+                .where((s) => s.isNotEmpty)
+                .map(int.parse)
+                .toList() ??
+            [],
+        confirmed: m['confirmed'] == null
+            ? null
+            : (m['confirmed'] as int) == 1,
+      );
+
+  PersonaCurrent copyWith({
+    String? name,
+    String? description,
+    int? strength,
+    DateTime? lastSeenAt,
+    List<String>? linkedTheories,
+    List<String>? linkedEmotions,
+    List<int>? thoughtIds,
+    bool? Function()? confirmed,
+  }) =>
+      PersonaCurrent(
+        id: id,
+        name: name ?? this.name,
+        description: description ?? this.description,
+        strength: strength ?? this.strength,
+        firstSeenAt: firstSeenAt,
+        lastSeenAt: lastSeenAt ?? this.lastSeenAt,
+        linkedTheories: linkedTheories ?? this.linkedTheories,
+        linkedEmotions: linkedEmotions ?? this.linkedEmotions,
+        thoughtIds: thoughtIds ?? this.thoughtIds,
+        confirmed: confirmed != null ? confirmed() : this.confirmed,
       );
 }
 
@@ -159,7 +269,39 @@ class AppDatabase {
   Future<Database> _open() async {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, 'oddly.db');
-    return openDatabase(path, version: 1, onCreate: _onCreate);
+    return openDatabase(
+      path,
+      version: 3,
+      onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
+    );
+  }
+
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute(
+          'ALTER TABLE insight_cards ADD COLUMN core_pattern TEXT NOT NULL DEFAULT ""');
+      await db.execute('''
+        CREATE TABLE persona_currents (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL,
+          strength INTEGER NOT NULL DEFAULT 1,
+          first_seen_at TEXT NOT NULL,
+          last_seen_at TEXT NOT NULL,
+          linked_theories TEXT NOT NULL DEFAULT '',
+          linked_emotions TEXT NOT NULL DEFAULT '',
+          thought_ids TEXT NOT NULL DEFAULT '',
+          confirmed INTEGER
+        )
+      ''');
+    }
+    if (oldVersion < 3) {
+      await db.execute(
+          'ALTER TABLE insight_cards ADD COLUMN perspective_index INTEGER NOT NULL DEFAULT 0');
+      await db.execute(
+          'ALTER TABLE insight_cards ADD COLUMN recommended_frameworks TEXT NOT NULL DEFAULT ""');
+    }
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -198,7 +340,10 @@ class AppDatabase {
         psychology_theory TEXT NOT NULL,
         psychology_explanation TEXT NOT NULL,
         action_guide TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        core_pattern TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        perspective_index INTEGER NOT NULL DEFAULT 0,
+        recommended_frameworks TEXT NOT NULL DEFAULT ''
       )
     ''');
 
@@ -209,6 +354,21 @@ class AppDatabase {
         similarity_score REAL NOT NULL,
         created_at TEXT NOT NULL,
         PRIMARY KEY (thought_id_a, thought_id_b)
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE persona_currents (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL,
+        strength INTEGER NOT NULL DEFAULT 1,
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        linked_theories TEXT NOT NULL DEFAULT '',
+        linked_emotions TEXT NOT NULL DEFAULT '',
+        thought_ids TEXT NOT NULL DEFAULT '',
+        confirmed INTEGER
       )
     ''');
   }
@@ -278,6 +438,44 @@ class AppDatabase {
       );
       await txn.delete('thoughts', where: 'id = ?', whereArgs: [id]);
     });
+
+    // 同步更新暗流强度：从所有引用了该 thought 的暗流里移除 id，重算强度
+    // 若某条暗流的 thought_ids 因此归零，则直接删除该暗流
+    await _syncCurrentsAfterDelete(id);
+  }
+
+  Future<void> _syncCurrentsAfterDelete(int deletedThoughtId) async {
+    final d = await db;
+    final rows = await d.query('persona_currents');
+    for (final row in rows) {
+      final currentId = row['id'] as String;
+      final thoughtIds = (row['thought_ids'] as String? ?? '')
+          .split(',')
+          .where((s) => s.isNotEmpty)
+          .map(int.parse)
+          .toList();
+
+      if (!thoughtIds.contains(deletedThoughtId)) continue;
+
+      final updated = thoughtIds.where((t) => t != deletedThoughtId).toList();
+
+      if (updated.isEmpty) {
+        // 这条暗流的所有来源都删了，暗流本身也清掉
+        await d.delete('persona_currents',
+            where: 'id = ?', whereArgs: [currentId]);
+      } else {
+        final newStrength = updated.length.clamp(1, 5);
+        await d.update(
+          'persona_currents',
+          {
+            'thought_ids': updated.join(','),
+            'strength': newStrength,
+          },
+          where: 'id = ?',
+          whereArgs: [currentId],
+        );
+      }
+    }
   }
 
   Future<void> markThoughtAnalyzed(int id, List<String> emotionTags) async {
@@ -335,13 +533,68 @@ class AppDatabase {
     return d.insert('insight_cards', card.toMap());
   }
 
+  /// 获取主视角洞察卡片（perspective_index = 0）
   Future<InsightCard?> getInsightCard(int thoughtId) async {
     final d = await db;
     final rows = await d.query(
       'insight_cards',
-      where: 'thought_id = ?',
+      where: 'thought_id = ? AND perspective_index = 0',
       whereArgs: [thoughtId],
+      limit: 1,
     );
     return rows.isEmpty ? null : InsightCard.fromMap(rows.first);
+  }
+
+  /// 获取指定视角的洞察卡片
+  Future<InsightCard?> getInsightCardByPerspective(
+      int thoughtId, int perspectiveIndex) async {
+    final d = await db;
+    final rows = await d.query(
+      'insight_cards',
+      where: 'thought_id = ? AND perspective_index = ?',
+      whereArgs: [thoughtId, perspectiveIndex],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : InsightCard.fromMap(rows.first);
+  }
+
+  // ── Persona Currents ────────────────────────────────────────────────────
+
+  Future<List<PersonaCurrent>> getAllCurrents() async {
+    final d = await db;
+    final rows = await d.query(
+      'persona_currents',
+      orderBy: 'strength DESC, last_seen_at DESC',
+    );
+    return rows.map(PersonaCurrent.fromMap).toList();
+  }
+
+  Future<void> upsertCurrent(PersonaCurrent current) async {
+    final d = await db;
+    await d.insert(
+      'persona_currents',
+      current.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> updateCurrentConfirmed(String id, bool? confirmed) async {
+    final d = await db;
+    await d.update(
+      'persona_currents',
+      {'confirmed': confirmed == null ? null : (confirmed ? 1 : 0)},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> updateCurrentName(String id, String name) async {
+    final d = await db;
+    await d.update(
+      'persona_currents',
+      {'name': name},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 }
