@@ -3,10 +3,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:record/record.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_decorations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/database/app_database.dart';
+import '../../services/ali_asr_service.dart';
 import '../../services/context_service.dart';
 import '../detail/detail_screen.dart';
 import 'home_stats_provider.dart';
@@ -22,8 +26,10 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     with SingleTickerProviderStateMixin {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
+  final AudioRecorder _recorder = AudioRecorder();
   bool _hasContent = false;
   bool _isRecording = false;
+  bool _isTranscribing = false;
   late AnimationController _submitAnimController;
   late Animation<double> _submitScaleAnim;
 
@@ -56,7 +62,58 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     _controller.dispose();
     _focusNode.dispose();
     _submitAnimController.dispose();
+    _recorder.dispose();
     super.dispose();
+  }
+
+  // ── 语音录入 ───────────────────────────────────────────────────────────────
+
+  Future<void> _startRecording() async {
+    final status = await Permission.microphone.request();
+    if (!status.isGranted) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('需要麦克风权限才能使用语音输入')),
+      );
+      return;
+    }
+    final dir = await getTemporaryDirectory();
+    final path = '${dir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.wav';
+    await _recorder.start(
+      const RecordConfig(encoder: AudioEncoder.wav, sampleRate: 16000, numChannels: 1),
+      path: path,
+    );
+    setState(() => _isRecording = true);
+    HapticFeedback.lightImpact();
+  }
+
+  Future<void> _stopRecordingAndTranscribe() async {
+    final path = await _recorder.stop();
+    setState(() {
+      _isRecording = false;
+      _isTranscribing = true;
+    });
+    HapticFeedback.lightImpact();
+
+    if (path == null) {
+      setState(() => _isTranscribing = false);
+      return;
+    }
+
+    final text = await AliASRService.instance.transcribe(path);
+    if (!mounted) return;
+    setState(() => _isTranscribing = false);
+
+    if (text != null && text.isNotEmpty) {
+      final current = _controller.text;
+      final needSpace = current.isNotEmpty && !current.endsWith('\n');
+      _controller.text = current + (needSpace ? '\n' : '') + text;
+      _controller.selection = TextSelection.collapsed(offset: _controller.text.length);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('未能识别语音，请重试')),
+      );
+    }
   }
 
   void _onSubmit() async {
@@ -285,11 +342,14 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // 语音输入按钮
+          // 语音输入按钮：按住录音，松手识别
           GestureDetector(
-            onTapDown: (_) => setState(() => _isRecording = true),
-            onTapUp: (_) => setState(() => _isRecording = false),
-            onTapCancel: () => setState(() => _isRecording = false),
+            onLongPressStart: (_) => _startRecording(),
+            onLongPressEnd: (_) => _stopRecordingAndTranscribe(),
+            onLongPressCancel: () async {
+              await _recorder.stop();
+              setState(() { _isRecording = false; _isTranscribing = false; });
+            },
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               width: 52,
@@ -306,11 +366,17 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
                   width: 1.5,
                 ),
               ),
-              child: Icon(
-                _isRecording ? Icons.mic_rounded : Icons.mic_none_rounded,
-                color: _isRecording ? AppColors.accent : AppColors.textSecondary,
-                size: 22,
-              ),
+              child: _isTranscribing
+                  ? const Padding(
+                      padding: EdgeInsets.all(14),
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: AppColors.accent),
+                    )
+                  : Icon(
+                      _isRecording ? Icons.mic_rounded : Icons.mic_none_rounded,
+                      color: _isRecording ? AppColors.accent : AppColors.textSecondary,
+                      size: 22,
+                    ),
             ),
           ),
 

@@ -24,6 +24,7 @@ class AiInsightResult {
   final List<String> emotionTags;
   final String corePattern;
   final List<String> recommendedNextFrameworks;
+  final List<String> cognitivePatterns;
 
   const AiInsightResult({
     required this.interpretation,
@@ -33,6 +34,7 @@ class AiInsightResult {
     required this.emotionTags,
     required this.corePattern,
     this.recommendedNextFrameworks = const [],
+    this.cognitivePatterns = const [],
   });
 
   factory AiInsightResult.fromJson(Map<String, dynamic> json) {
@@ -45,6 +47,8 @@ class AiInsightResult {
       corePattern: json['core_pattern'] as String? ?? '',
       recommendedNextFrameworks:
           (json['recommended_next_frameworks'] as List? ?? []).cast<String>(),
+      cognitivePatterns:
+          (json['cognitive_patterns'] as List? ?? []).cast<String>(),
     );
   }
 }

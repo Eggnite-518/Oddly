@@ -1,16 +1,40 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_decorations.dart';
 import '../../data/database/app_database.dart';
+import '../../features/detail/detail_screen.dart';
+import '../../services/cognitive_pattern_service.dart';
 import 'mirror_provider.dart';
 
-class MirrorScreen extends ConsumerWidget {
+class MirrorScreen extends ConsumerStatefulWidget {
   const MirrorScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MirrorScreen> createState() => _MirrorScreenState();
+}
+
+class _MirrorScreenState extends ConsumerState<MirrorScreen>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final state = ref.watch(mirrorProvider);
 
     return Scaffold(
@@ -22,9 +46,16 @@ class MirrorScreen extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildTopBar(context, state),
+                _buildTopBar(),
+                _buildTabBar(),
                 Expanded(
-                  child: _buildBody(context, ref, state),
+                  child: TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _buildCurrentsTab(state),
+                      _buildPatternsTab(state),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -34,9 +65,9 @@ class MirrorScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildTopBar(BuildContext context, MirrorState state) {
+  Widget _buildTopBar() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -61,19 +92,92 @@ class MirrorScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildBody(BuildContext context, WidgetRef ref, MirrorState state) {
-    switch (state.phase) {
-      case MirrorPhase.loading:
-        return const Center(
-          child: CircularProgressIndicator(color: AppColors.accent),
-        );
-      case MirrorPhase.empty:
-        return _EmptyState();
-      case MirrorPhase.observing:
-        return _ObservingState(totalThoughts: state.totalThoughts);
-      case MirrorPhase.ready:
-        return _CurrentsList(state: state);
+  Widget _buildTabBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+      child: TabBar(
+        controller: _tabController,
+        labelStyle: GoogleFonts.nunitoSans(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+        ),
+        unselectedLabelStyle: GoogleFonts.nunitoSans(fontSize: 13),
+        labelColor: AppColors.accent,
+        unselectedLabelColor: AppColors.textHint,
+        indicatorColor: AppColors.accent,
+        indicatorSize: TabBarIndicatorSize.label,
+        dividerColor: AppColors.divider,
+        tabs: const [
+          Tab(text: '暗流'),
+          Tab(text: '思维惯性'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCurrentsTab(MirrorState state) {
+    return switch (state.phase) {
+      MirrorPhase.loading => const Center(
+          child: CircularProgressIndicator(color: AppColors.accent)),
+      MirrorPhase.empty => _EmptyState(),
+      MirrorPhase.observing =>
+        _ObservingState(totalThoughts: state.totalThoughts),
+      MirrorPhase.ready => _CurrentsList(state: state),
+    };
+  }
+
+  Widget _buildPatternsTab(MirrorState state) {
+    final stats = state.cognitivePatternStats;
+    if (stats.isEmpty) {
+      return _PatternEmptyState();
     }
+    return RefreshIndicator(
+      color: AppColors.accent,
+      backgroundColor: AppColors.cardBg,
+      onRefresh: () => ref.read(mirrorProvider.notifier).reload(),
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+        children: [
+          _buildPatternSummary(stats),
+          const SizedBox(height: 20),
+          ...stats.map((s) => _PatternCard(stat: s)),
+          const SizedBox(height: 16),
+          _buildPatternFootnote(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPatternSummary(List<CognitivePatternStat> stats) {
+    final highFreqCount = stats.where((s) => s.isHighFrequency).length;
+    return Row(
+      children: [
+        _StatChip(value: '${stats.length}', label: '种思维惯性被识别'),
+        if (highFreqCount > 0) ...[
+          const SizedBox(width: 12),
+          _StatChip(value: '$highFreqCount', label: '种已成高频模式'),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildPatternFootnote() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.cardBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.cardBorder),
+      ),
+      child: Text(
+        '思维惯性不是你的"问题"，而是大脑熟悉的路径。识别它，是改变的第一步。',
+        style: GoogleFonts.nunitoSans(
+          fontSize: 12,
+          color: AppColors.textSecondary,
+          height: 1.6,
+        ),
+      ),
+    );
   }
 }
 
@@ -446,14 +550,28 @@ class _CurrentCardState extends ConsumerState<_CurrentCard> {
                 ],
               ),
             ),
-          // ── 元信息
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-            child: Text(
-              '首次涌现 ${_formatDate(c.firstSeenAt)} · 在 ${c.thoughtIds.length} 条想法中出现',
-              style: GoogleFonts.nunitoSans(
-                fontSize: 11,
-                color: AppColors.textHint,
+          // ── 元信息 + 查看关联想法入口
+          GestureDetector(
+            onTap: c.thoughtIds.isEmpty
+                ? null
+                : () => _showLinkedThoughts(context, c),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Row(
+                children: [
+                  Text(
+                    '首次涌现 ${_formatDate(c.firstSeenAt)} · 在 ${c.thoughtIds.length} 条想法中出现',
+                    style: GoogleFonts.nunitoSans(
+                      fontSize: 11,
+                      color: AppColors.textHint,
+                    ),
+                  ),
+                  if (c.thoughtIds.isNotEmpty) ...[
+                    const SizedBox(width: 4),
+                    Icon(Icons.chevron_right_rounded,
+                        size: 13, color: AppColors.textHint),
+                  ],
+                ],
               ),
             ),
           ),
@@ -516,6 +634,24 @@ class _CurrentCardState extends ConsumerState<_CurrentCard> {
               ),
             ),
         ],
+      ),
+    );
+  }
+
+  void _showLinkedThoughts(BuildContext context, PersonaCurrent current) {
+    HapticFeedback.lightImpact();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      isDismissible: true,
+      builder: (ctx) => GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => Navigator.of(ctx).pop(),
+        child: _LinkedThoughtsSheet(
+          name: current.name,
+          thoughtIds: current.thoughtIds,
+        ),
       ),
     );
   }
@@ -674,6 +810,409 @@ class _ConfirmButton extends StatelessWidget {
             color: isPrimary ? Colors.white : AppColors.textSecondary,
             fontWeight: isPrimary ? FontWeight.w600 : FontWeight.normal,
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── 思维惯性空态 ──────────────────────────────────────────────────────────────
+
+class _PatternEmptyState extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.psychology_outlined,
+                size: 48, color: AppColors.accentLight),
+            const SizedBox(height: 24),
+            Text(
+              '还没有思维惯性被识别',
+              style: GoogleFonts.maShanZheng(
+                fontSize: 20,
+                color: AppColors.accentDeep,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              '记录更多想法并生成洞察后，\nOddly 会悄悄帮你发现思维中的惯性路径。',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.nunitoSans(
+                fontSize: 14,
+                color: AppColors.textSecondary,
+                height: 1.7,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── 思维惯性卡片 ──────────────────────────────────────────────────────────────
+
+class _PatternCard extends StatelessWidget {
+  final CognitivePatternStat stat;
+  const _PatternCard({required this.stat});
+
+  void _showLinkedThoughts(BuildContext context) {
+    HapticFeedback.lightImpact();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      isDismissible: true,
+      builder: (ctx) => GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => Navigator.of(ctx).pop(),
+        child: _LinkedThoughtsSheet(
+          name: stat.name,
+          thoughtIds: stat.thoughtIds,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isHighFreq = stat.isHighFrequency;
+    final desc = kCognitivePatternDescriptions[stat.name] ?? '';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      decoration: BoxDecoration(
+        color: AppColors.cardBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isHighFreq ? AppColors.accentDeep.withAlpha(60) : AppColors.cardBorder,
+          width: isHighFreq ? 1.5 : 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          if (isHighFreq) ...[
+                            Container(
+                              width: 7,
+                              height: 7,
+                              decoration: const BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: AppColors.accentDeep,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                          ],
+                          Text(
+                            stat.name,
+                            style: GoogleFonts.maShanZheng(
+                              fontSize: 17,
+                              color: isHighFreq
+                                  ? AppColors.accentDeep
+                                  : AppColors.textPrimary,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (isHighFreq)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            '高频模式',
+                            style: GoogleFonts.nunitoSans(
+                              fontSize: 10,
+                              color: AppColors.accentDeep,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isHighFreq
+                        ? AppColors.accentDeep.withAlpha(20)
+                        : AppColors.accentLight.withAlpha(40),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '× ${stat.count}',
+                    style: GoogleFonts.caveat(
+                      fontSize: 16,
+                      color: isHighFreq
+                          ? AppColors.accentDeep
+                          : AppColors.textSecondary,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (desc.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+              child: Text(
+                desc,
+                style: GoogleFonts.nunitoSans(
+                  fontSize: 13,
+                  color: AppColors.textSecondary,
+                  height: 1.6,
+                ),
+              ),
+            ),
+          GestureDetector(
+            onTap: stat.thoughtIds.isEmpty
+                ? null
+                : () => _showLinkedThoughts(context),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+              child: Row(
+                children: [
+                  Text(
+                    '首次出现 ${_fmt(stat.firstSeenAt)} · 在 ${stat.thoughtIds.length} 条想法中',
+                    style: GoogleFonts.nunitoSans(
+                      fontSize: 11,
+                      color: AppColors.textHint,
+                    ),
+                  ),
+                  if (stat.thoughtIds.isNotEmpty) ...[
+                    const SizedBox(width: 4),
+                    Icon(Icons.chevron_right_rounded,
+                        size: 13, color: AppColors.textHint),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _fmt(DateTime dt) => '${dt.month}月${dt.day}日';
+}
+
+// ── 关联想法底部弹出 ──────────────────────────────────────────────────────────
+
+class _LinkedThoughtsSheet extends StatefulWidget {
+  final String name;
+  final List<int> thoughtIds;
+  const _LinkedThoughtsSheet({required this.name, required this.thoughtIds});
+
+  @override
+  State<_LinkedThoughtsSheet> createState() => _LinkedThoughtsSheetState();
+}
+
+class _LinkedThoughtsSheetState extends State<_LinkedThoughtsSheet> {
+  List<Thought>? _thoughts;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final thoughts =
+        await AppDatabase.instance.getThoughtsByIds(widget.thoughtIds);
+    if (mounted) setState(() => _thoughts = thoughts);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.6,
+      minChildSize: 0.4,
+      maxChildSize: 0.92,
+      builder: (_, controller) => GestureDetector(
+        onTap: () {},
+        child: Container(
+          decoration: const BoxDecoration(
+            color: AppColors.pageBg,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  margin: const EdgeInsets.only(top: 12, bottom: 16),
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.cardBorder,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+                child: Text(
+                  widget.name,
+                  style: GoogleFonts.maShanZheng(
+                    fontSize: 20,
+                    color: AppColors.accentDeep,
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                child: Text(
+                  '${widget.thoughtIds.length} 条相关想法',
+                  style: GoogleFonts.nunitoSans(
+                      fontSize: 12, color: AppColors.textHint),
+                ),
+              ),
+              Divider(color: AppColors.divider, height: 1),
+              Expanded(
+                child: _thoughts == null
+                    ? const Center(
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: AppColors.accent))
+                    : _thoughts!.isEmpty
+                        ? Center(
+                            child: Text(
+                              '找不到相关想法',
+                              style: GoogleFonts.nunitoSans(
+                                  fontSize: 14, color: AppColors.textHint),
+                            ),
+                          )
+                        : ListView.separated(
+                            controller: controller,
+                            padding:
+                                const EdgeInsets.fromLTRB(20, 16, 20, 40),
+                            itemCount: _thoughts!.length,
+                            separatorBuilder: (context, i) =>
+                                const SizedBox(height: 12),
+                            itemBuilder: (context, i) =>
+                                _LinkedThoughtTile(thought: _thoughts![i]),
+                          ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LinkedThoughtTile extends StatelessWidget {
+  final Thought thought;
+  const _LinkedThoughtTile({required this.thought});
+
+  @override
+  Widget build(BuildContext context) {
+    final fmt = DateFormat('M月d日 HH:mm');
+    return GestureDetector(
+      onTap: () {
+        Navigator.pop(context); // 关闭底部弹出
+        Navigator.push(
+          context,
+          PageRouteBuilder(
+            pageBuilder: (context, animation, secondary) =>
+                DetailScreen(thoughtId: thought.id!),
+            transitionsBuilder: (context, animation, secondary, child) => SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(1, 0),
+                end: Offset.zero,
+              ).animate(CurvedAnimation(
+                  parent: animation, curve: Curves.easeOutCubic)),
+              child: child,
+            ),
+            transitionDuration: const Duration(milliseconds: 300),
+          ),
+        );
+      },
+      child: Container(
+        decoration: AppDecorations.card(),
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  fmt.format(thought.createdAt),
+                  style: GoogleFonts.nunitoSans(
+                    fontSize: 11,
+                    color: AppColors.textHint,
+                  ),
+                ),
+                const Spacer(),
+                if (thought.isAnalyzed)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppColors.accent.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      '已洞察',
+                      style: GoogleFonts.nunitoSans(
+                        fontSize: 10,
+                        color: AppColors.accent,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              thought.content,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.nunitoSans(
+                fontSize: 14,
+                color: AppColors.textPrimary,
+                height: 1.6,
+              ),
+            ),
+            if (thought.emotionTags.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: thought.emotionTags.take(3).map((tag) {
+                  return Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppColors.accentLight.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      tag,
+                      style: GoogleFonts.nunitoSans(
+                        fontSize: 11,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ],
+          ],
         ),
       ),
     );

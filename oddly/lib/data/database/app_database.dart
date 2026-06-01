@@ -114,6 +114,9 @@ class InsightCard {
   // 仅在 perspectiveIndex == 0 时有意义，记录 AI 推荐的后续框架顺序
   final List<String> recommendedFrameworks;
 
+  // 仅在 perspectiveIndex == 0 时有意义，记录本条想法检测到的思维惯性
+  final List<String> cognitivePatterns;
+
   const InsightCard({
     this.id,
     required this.thoughtId,
@@ -125,6 +128,7 @@ class InsightCard {
     required this.createdAt,
     this.perspectiveIndex = 0,
     this.recommendedFrameworks = const [],
+    this.cognitivePatterns = const [],
   });
 
   Map<String, dynamic> toMap() => {
@@ -138,6 +142,7 @@ class InsightCard {
         'created_at': createdAt.toIso8601String(),
         'perspective_index': perspectiveIndex,
         'recommended_frameworks': recommendedFrameworks.join(','),
+        'cognitive_patterns': cognitivePatterns.join(','),
       };
 
   factory InsightCard.fromMap(Map<String, dynamic> m) => InsightCard(
@@ -154,6 +159,10 @@ class InsightCard {
         createdAt: DateTime.parse(m['created_at'] as String),
         perspectiveIndex: m['perspective_index'] as int? ?? 0,
         recommendedFrameworks: (m['recommended_frameworks'] as String? ?? '')
+            .split(',')
+            .where((s) => s.isNotEmpty)
+            .toList(),
+        cognitivePatterns: (m['cognitive_patterns'] as String? ?? '')
             .split(',')
             .where((s) => s.isNotEmpty)
             .toList(),
@@ -253,6 +262,47 @@ class PersonaCurrent {
       );
 }
 
+// ── CognitivePatternStat ────────────────────────────────────────────────────
+
+class CognitivePatternStat {
+  final String name;
+  final int count;
+  final List<int> thoughtIds;
+  final DateTime firstSeenAt;
+  final DateTime lastSeenAt;
+
+  const CognitivePatternStat({
+    required this.name,
+    required this.count,
+    required this.thoughtIds,
+    required this.firstSeenAt,
+    required this.lastSeenAt,
+  });
+
+  bool get isHighFrequency => count >= 3;
+
+  Map<String, dynamic> toMap() => {
+        'name': name,
+        'count': count,
+        'thought_ids': thoughtIds.join(','),
+        'first_seen_at': firstSeenAt.toIso8601String(),
+        'last_seen_at': lastSeenAt.toIso8601String(),
+      };
+
+  factory CognitivePatternStat.fromMap(Map<String, dynamic> m) =>
+      CognitivePatternStat(
+        name: m['name'] as String,
+        count: m['count'] as int,
+        thoughtIds: (m['thought_ids'] as String? ?? '')
+            .split(',')
+            .where((s) => s.isNotEmpty)
+            .map(int.parse)
+            .toList(),
+        firstSeenAt: DateTime.parse(m['first_seen_at'] as String),
+        lastSeenAt: DateTime.parse(m['last_seen_at'] as String),
+      );
+}
+
 // ── Database ────────────────────────────────────────────────────────────────
 
 class AppDatabase {
@@ -271,7 +321,7 @@ class AppDatabase {
     final path = join(dbPath, 'oddly.db');
     return openDatabase(
       path,
-      version: 3,
+      version: 4,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -301,6 +351,19 @@ class AppDatabase {
           'ALTER TABLE insight_cards ADD COLUMN perspective_index INTEGER NOT NULL DEFAULT 0');
       await db.execute(
           'ALTER TABLE insight_cards ADD COLUMN recommended_frameworks TEXT NOT NULL DEFAULT ""');
+    }
+    if (oldVersion < 4) {
+      await db.execute(
+          'ALTER TABLE insight_cards ADD COLUMN cognitive_patterns TEXT NOT NULL DEFAULT ""');
+      await db.execute('''
+        CREATE TABLE cognitive_pattern_stats (
+          name TEXT PRIMARY KEY,
+          count INTEGER NOT NULL DEFAULT 1,
+          thought_ids TEXT NOT NULL DEFAULT '',
+          first_seen_at TEXT NOT NULL,
+          last_seen_at TEXT NOT NULL
+        )
+      ''');
     }
   }
 
@@ -343,7 +406,8 @@ class AppDatabase {
         core_pattern TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
         perspective_index INTEGER NOT NULL DEFAULT 0,
-        recommended_frameworks TEXT NOT NULL DEFAULT ''
+        recommended_frameworks TEXT NOT NULL DEFAULT '',
+        cognitive_patterns TEXT NOT NULL DEFAULT ''
       )
     ''');
 
@@ -371,6 +435,16 @@ class AppDatabase {
         confirmed INTEGER
       )
     ''');
+
+    await db.execute('''
+      CREATE TABLE cognitive_pattern_stats (
+        name TEXT PRIMARY KEY,
+        count INTEGER NOT NULL DEFAULT 1,
+        thought_ids TEXT NOT NULL DEFAULT '',
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL
+      )
+    ''');
   }
 
   // ── Thoughts ────────────────────────────────────────────────────────────
@@ -389,6 +463,17 @@ class AppDatabase {
   Future<List<Thought>> getAllThoughts() async {
     final d = await db;
     final rows = await d.query('thoughts', orderBy: 'created_at DESC');
+    return rows.map(Thought.fromMap).toList();
+  }
+
+  Future<List<Thought>> getThoughtsByIds(List<int> ids) async {
+    if (ids.isEmpty) return [];
+    final d = await db;
+    final placeholders = ids.map((_) => '?').join(',');
+    final rows = await d.rawQuery(
+      'SELECT * FROM thoughts WHERE id IN ($placeholders) ORDER BY created_at DESC',
+      ids,
+    );
     return rows.map(Thought.fromMap).toList();
   }
 
@@ -596,5 +681,57 @@ class AppDatabase {
       where: 'id = ?',
       whereArgs: [id],
     );
+  }
+
+  // ── Cognitive Pattern Stats ──────────────────────────────────────────────
+
+  Future<List<CognitivePatternStat>> getAllCognitivePatternStats() async {
+    final d = await db;
+    final rows = await d.query(
+      'cognitive_pattern_stats',
+      orderBy: 'count DESC',
+    );
+    return rows.map(CognitivePatternStat.fromMap).toList();
+  }
+
+  Future<CognitivePatternStat?> getCognitivePatternStat(String name) async {
+    final d = await db;
+    final rows = await d.query(
+      'cognitive_pattern_stats',
+      where: 'name = ?',
+      whereArgs: [name],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : CognitivePatternStat.fromMap(rows.first);
+  }
+
+  /// 记录一次思维惯性出现，若已有则累加 count 并合并 thoughtId
+  Future<void> upsertCognitivePatternStat(
+      String name, int thoughtId) async {
+    final d = await db;
+    final existing = await getCognitivePatternStat(name);
+    final now = DateTime.now().toIso8601String();
+
+    if (existing == null) {
+      await d.insert('cognitive_pattern_stats', {
+        'name': name,
+        'count': 1,
+        'thought_ids': '$thoughtId',
+        'first_seen_at': now,
+        'last_seen_at': now,
+      });
+    } else {
+      final ids = {...existing.thoughtIds, thoughtId}.toList();
+      await d.update(
+        'cognitive_pattern_stats',
+        {
+          'count': ids.length,
+          'thought_ids': ids.join(','),
+          'last_seen_at': now,
+        },
+        where: 'name = ?',
+        whereArgs: [name],
+      );
+    }
   }
 }

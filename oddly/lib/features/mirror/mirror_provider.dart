@@ -9,22 +9,27 @@ class MirrorState {
   final MirrorPhase phase;
   final List<PersonaCurrent> currents;
   final int totalThoughts;
+  final List<CognitivePatternStat> cognitivePatternStats;
 
   const MirrorState({
     this.phase = MirrorPhase.loading,
     this.currents = const [],
     this.totalThoughts = 0,
+    this.cognitivePatternStats = const [],
   });
 
   MirrorState copyWith({
     MirrorPhase? phase,
     List<PersonaCurrent>? currents,
     int? totalThoughts,
+    List<CognitivePatternStat>? cognitivePatternStats,
   }) =>
       MirrorState(
         phase: phase ?? this.phase,
         currents: currents ?? this.currents,
         totalThoughts: totalThoughts ?? this.totalThoughts,
+        cognitivePatternStats:
+            cognitivePatternStats ?? this.cognitivePatternStats,
       );
 }
 
@@ -41,6 +46,7 @@ class MirrorNotifier extends StateNotifier<MirrorState> {
     final currents = await _db.getAllCurrents();
     final thoughts = await _db.getAllThoughts();
     final analyzedCount = thoughts.where((t) => t.isAnalyzed).length;
+    final patternStats = await _db.getAllCognitivePatternStats();
 
     MirrorPhase phase;
     if (analyzedCount == 0) {
@@ -55,6 +61,7 @@ class MirrorNotifier extends StateNotifier<MirrorState> {
       phase: phase,
       currents: currents,
       totalThoughts: analyzedCount,
+      cognitivePatternStats: patternStats,
     );
   }
 

@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/database/app_database.dart';
 import '../../services/ai_service.dart';
+import '../../services/cognitive_pattern_service.dart';
 import '../../services/persona_service.dart';
 
 // ── State ──────────────────────────────────────────────────────────────────
@@ -28,6 +29,10 @@ class DetailState {
   final int perspectiveIndex;
   final List<String> recommendedFrameworks;
   final bool isSwitchingPerspective;
+  // 思维惯性：来自第一张卡片，全部视角共享
+  final List<String> primaryCognitivePatterns;
+  // 已达到高频门槛（≥3次）的模式
+  final List<String> highFrequencyPatterns;
 
   int get totalPerspectives =>
       recommendedFrameworks.isEmpty ? 1 : 1 + recommendedFrameworks.length;
@@ -45,6 +50,8 @@ class DetailState {
     this.perspectiveIndex = 0,
     this.recommendedFrameworks = const [],
     this.isSwitchingPerspective = false,
+    this.primaryCognitivePatterns = const [],
+    this.highFrequencyPatterns = const [],
   });
 
   DetailState copyWith({
@@ -58,6 +65,8 @@ class DetailState {
     int? perspectiveIndex,
     List<String>? recommendedFrameworks,
     bool? isSwitchingPerspective,
+    List<String>? primaryCognitivePatterns,
+    List<String>? highFrequencyPatterns,
     bool clearInsight = false,
     bool clearQuestion = false,
     bool clearConvId = false,
@@ -77,6 +86,10 @@ class DetailState {
             recommendedFrameworks ?? this.recommendedFrameworks,
         isSwitchingPerspective:
             isSwitchingPerspective ?? this.isSwitchingPerspective,
+        primaryCognitivePatterns:
+            primaryCognitivePatterns ?? this.primaryCognitivePatterns,
+        highFrequencyPatterns:
+            highFrequencyPatterns ?? this.highFrequencyPatterns,
       );
 }
 
@@ -105,13 +118,19 @@ class ThoughtDetailNotifier extends StateNotifier<DetailState> {
       final insightCard = await _db.getInsightCard(thoughtId);
 
       if (insightCard != null) {
-        // 已经分析过了，直接展示
+        // 已经分析过了，直接展示；顺便检查高频思维惯性
+        final highFreq = insightCard.cognitivePatterns.isEmpty
+            ? <String>[]
+            : await CognitivePatternService.instance
+                .getHighFrequencyPatterns(insightCard.cognitivePatterns);
         state = state.copyWith(
           phase: DetailPhase.showingInsight,
           thought: thought,
           conversations: conversations,
           insightCard: insightCard,
           recommendedFrameworks: insightCard.recommendedFrameworks,
+          primaryCognitivePatterns: insightCard.cognitivePatterns,
+          highFrequencyPatterns: highFreq,
         );
         return;
       }
@@ -257,6 +276,7 @@ class ThoughtDetailNotifier extends StateNotifier<DetailState> {
         createdAt: DateTime.now(),
         perspectiveIndex: 0,
         recommendedFrameworks: result.recommendedNextFrameworks,
+        cognitivePatterns: result.cognitivePatterns,
       ));
 
       await _db.markThoughtAnalyzed(thoughtId, result.emotionTags);
@@ -270,15 +290,30 @@ class ThoughtDetailNotifier extends StateNotifier<DetailState> {
         thought: updatedThought,
         perspectiveIndex: 0,
         recommendedFrameworks: result.recommendedNextFrameworks,
+        primaryCognitivePatterns: result.cognitivePatterns,
       );
 
-      // 在洞察卡片展示后，异步触发潜流提取，不阻塞 UI
+      // 异步触发潜流提取和思维惯性聚合，不阻塞 UI
       if (card != null) {
         PersonaService.instance.extractAndMerge(
           thoughtId: thoughtId,
           card: card,
           ai: _ai,
         ).ignore();
+
+        if (result.cognitivePatterns.isNotEmpty) {
+          CognitivePatternService.instance.aggregate(
+            thoughtId: thoughtId,
+            patterns: result.cognitivePatterns,
+          ).then((_) async {
+            // 聚合完成后检查哪些达到高频门槛，更新状态
+            final highFreq = await CognitivePatternService.instance
+                .getHighFrequencyPatterns(result.cognitivePatterns);
+            if (mounted) {
+              state = state.copyWith(highFrequencyPatterns: highFreq);
+            }
+          }).ignore();
+        }
       }
     } catch (e, stack) {
       debugPrint('[Oddly] 洞察生成失败: $e');

@@ -632,6 +632,10 @@ class _DetailScreenState extends ConsumerState<DetailScreen>
   }
 
   Widget _buildInsightCardContent(InsightCard card, DetailState state) {
+    // 思维惯性来自主视角（第一张卡片），全部视角共享
+    final patterns = state.primaryCognitivePatterns;
+    final highFreq = state.highFrequencyPatterns;
+
     return Container(
       key: ValueKey(state.perspectiveIndex),
       decoration: AppDecorations.insightCard(),
@@ -735,6 +739,122 @@ class _DetailScreenState extends ConsumerState<DetailScreen>
                   ],
                 ),
               )),
+
+          // 思维惯性 section（全部视角共享，来自主视角分析结果）
+          if (patterns.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Divider(color: AppColors.divider, height: 1),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Icon(Icons.psychology_outlined,
+                    size: 14, color: AppColors.textSecondary),
+                const SizedBox(width: 6),
+                Text(
+                  '思维惯性',
+                  style: GoogleFonts.nunito(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: patterns
+                  .map((p) => _buildPatternTag(p, highFreq.contains(p)))
+                  .toList(),
+            ),
+            // 高频提示
+            if (highFreq.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              GestureDetector(
+                onTap: () {
+                  // Mirror 页通过 bottom nav 切换，暂用 Navigator.pop 引导
+                  Navigator.pop(context);
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppColors.accentLight.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: AppColors.accentLight.withValues(alpha: 0.4),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.insights_rounded,
+                          size: 13, color: AppColors.accentDeep),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          '「${highFreq.first}」已出现 3 次以上 · 去 Mirror 查看全貌',
+                          style: GoogleFonts.nunito(
+                            fontSize: 12,
+                            color: AppColors.accentDeep,
+                            height: 1.5,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Icon(Icons.chevron_right_rounded,
+                          size: 14, color: AppColors.accentDeep),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPatternTag(String pattern, bool isHighFrequency) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: isHighFrequency
+            ? AppColors.accentDeep.withValues(alpha: 0.1)
+            : AppColors.cardBg,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: isHighFrequency
+              ? AppColors.accentDeep.withValues(alpha: 0.35)
+              : AppColors.cardBorder,
+          width: 1.2,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isHighFrequency) ...[
+            Container(
+              width: 5,
+              height: 5,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppColors.accentDeep,
+              ),
+            ),
+            const SizedBox(width: 5),
+          ],
+          Text(
+            pattern,
+            style: GoogleFonts.nunito(
+              fontSize: 12,
+              fontWeight: isHighFrequency ? FontWeight.w600 : FontWeight.w500,
+              color: isHighFrequency
+                  ? AppColors.accentDeep
+                  : AppColors.textSecondary,
+            ),
+          ),
         ],
       ),
     );
