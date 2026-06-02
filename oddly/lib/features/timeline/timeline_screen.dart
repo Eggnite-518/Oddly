@@ -27,7 +27,7 @@ class TimelineScreen extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _buildTopBar(),
-                if (state.allTags.isNotEmpty) _buildTagFilter(ref, state),
+                if (state.allTags.isNotEmpty) _buildTagFilter(context, ref, state),
                 Expanded(
                   child: state.isLoading
                       ? _buildLoading()
@@ -47,19 +47,25 @@ class TimelineScreen extends ConsumerWidget {
 
   Widget _buildTopBar() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
-      child: Row(
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              HandwrittenText('碎念集',
-                  fontSize: 22, color: AppColors.accentDeep),
-              const SizedBox(height: 1),
-              Text('你所有的奇怪想法都在这里',
-                  style: GoogleFonts.nunito(
-                      fontSize: 12, color: AppColors.textHint)),
-            ],
+          Text(
+            'Timeline',
+            style: GoogleFonts.caveat(
+              fontSize: 32,
+              color: AppColors.accentDeep,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            '每一个念头，都值得被记下',
+            style: GoogleFonts.nunitoSans(
+              fontSize: 13,
+              color: AppColors.textSecondary,
+            ),
           ),
         ],
       ),
@@ -68,30 +74,143 @@ class TimelineScreen extends ConsumerWidget {
 
   // ── 情绪标签筛选栏 ────────────────────────────────────────────────────────
 
-  Widget _buildTagFilter(WidgetRef ref, TimelineState state) {
+  Widget _buildTagFilter(BuildContext context, WidgetRef ref, TimelineState state) {
     return SizedBox(
-      height: 36,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 20),
+      height: 38,
+      child: Row(
         children: [
-          // 「全部」标签
-          _TagChip(
-            label: '全部',
-            selected: state.selectedTag == null,
-            onTap: () => ref.read(timelineProvider.notifier).selectTag(null),
-          ),
-          const SizedBox(width: 8),
-          ...state.allTags.map((tag) => Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: _TagChip(
-                  label: tag,
-                  selected: state.selectedTag == tag,
+          Expanded(
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.only(left: 20),
+              children: [
+                _TagChip(
+                  label: '全部',
+                  selected: state.selectedTag == null,
                   onTap: () =>
-                      ref.read(timelineProvider.notifier).selectTag(tag),
+                      ref.read(timelineProvider.notifier).selectTag(null),
                 ),
-              )),
+                const SizedBox(width: 8),
+                ...state.allTags.map((tag) => Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: _TagChip(
+                        label: tag,
+                        selected: state.selectedTag == tag,
+                        onTap: () =>
+                            ref.read(timelineProvider.notifier).selectTag(tag),
+                      ),
+                    )),
+              ],
+            ),
+          ),
+          // 固定漏斗按钮
+          GestureDetector(
+            onTap: () => _showTagSheet(context, ref, state),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  colors: [
+                    AppColors.pageBg.withValues(alpha: 0),
+                    AppColors.pageBg,
+                    AppColors.pageBg,
+                  ],
+                ),
+              ),
+              child: Icon(
+                Icons.tune_rounded,
+                size: 18,
+                color: state.selectedTag != null
+                    ? AppColors.accent
+                    : AppColors.textHint,
+              ),
+            ),
+          ),
         ],
+      ),
+    );
+  }
+
+  void _showTagSheet(
+      BuildContext context, WidgetRef ref, TimelineState state) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => Navigator.of(ctx).pop(),
+        child: DraggableScrollableSheet(
+          initialChildSize: 0.5,
+          minChildSize: 0.35,
+          maxChildSize: 0.85,
+          builder: (_, controller) => GestureDetector(
+            onTap: () {},
+            child: Container(
+              decoration: const BoxDecoration(
+                color: AppColors.pageBg,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      margin: const EdgeInsets.only(top: 12, bottom: 16),
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppColors.cardBorder,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                    child: Text(
+                      '按情绪筛选',
+                      style: GoogleFonts.caveat(
+                        fontSize: 22,
+                        color: AppColors.accentDeep,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      controller: controller,
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 40),
+                      child: Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          _TagChip(
+                            label: '全部',
+                            selected: state.selectedTag == null,
+                            onTap: () {
+                              ref.read(timelineProvider.notifier).selectTag(null);
+                              Navigator.of(ctx).pop();
+                            },
+                          ),
+                          ...state.allTags.map((tag) => _TagChip(
+                                label: tag,
+                                selected: state.selectedTag == tag,
+                                onTap: () {
+                                  ref.read(timelineProvider.notifier).selectTag(tag);
+                                  Navigator.of(ctx).pop();
+                                },
+                              )),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -445,21 +564,28 @@ class _TagChip extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
 
-  const _TagChip(
-      {required this.label, required this.selected, required this.onTap});
+  const _TagChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final bgColor = selected ? AppColors.accent : AppColors.cardBg;
+    final borderColor = selected ? AppColors.accent : AppColors.cardBorder;
+    final textColor = selected ? Colors.white : AppColors.textSecondary;
+
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
         decoration: BoxDecoration(
-          color: selected ? AppColors.accent : AppColors.cardBg,
+          color: bgColor,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: selected ? AppColors.accent : AppColors.cardBorder,
+            color: borderColor,
             width: 1.2,
           ),
         ),
@@ -468,7 +594,7 @@ class _TagChip extends StatelessWidget {
           style: GoogleFonts.nunito(
             fontSize: 13,
             fontWeight: FontWeight.w500,
-            color: selected ? Colors.white : AppColors.textSecondary,
+            color: textColor,
           ),
         ),
       ),

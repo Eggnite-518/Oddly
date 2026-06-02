@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -100,6 +102,26 @@ class AiConversation {
       );
 }
 
+/// 单条思维惯性：名称 + 与当前想法的个性化关联说明
+class CognitivePatternItem {
+  final String name;
+  final String reason;
+
+  const CognitivePatternItem({required this.name, required this.reason});
+
+  Map<String, dynamic> toJson() => {'name': name, 'reason': reason};
+
+  factory CognitivePatternItem.fromJson(Map<String, dynamic> j) =>
+      CognitivePatternItem(
+        name: j['name'] as String? ?? '',
+        reason: j['reason'] as String? ?? '',
+      );
+
+  /// 兼容旧格式：只有名称字符串，没有 reason
+  factory CognitivePatternItem.nameOnly(String name) =>
+      CognitivePatternItem(name: name, reason: '');
+}
+
 class InsightCard {
   final int? id;
   final int thoughtId;
@@ -115,7 +137,7 @@ class InsightCard {
   final List<String> recommendedFrameworks;
 
   // 仅在 perspectiveIndex == 0 时有意义，记录本条想法检测到的思维惯性
-  final List<String> cognitivePatterns;
+  final List<CognitivePatternItem> cognitivePatterns;
 
   const InsightCard({
     this.id,
@@ -142,7 +164,8 @@ class InsightCard {
         'created_at': createdAt.toIso8601String(),
         'perspective_index': perspectiveIndex,
         'recommended_frameworks': recommendedFrameworks.join(','),
-        'cognitive_patterns': cognitivePatterns.join(','),
+        'cognitive_patterns':
+            jsonEncode(cognitivePatterns.map((p) => p.toJson()).toList()),
       };
 
   factory InsightCard.fromMap(Map<String, dynamic> m) => InsightCard(
@@ -162,11 +185,27 @@ class InsightCard {
             .split(',')
             .where((s) => s.isNotEmpty)
             .toList(),
-        cognitivePatterns: (m['cognitive_patterns'] as String? ?? '')
-            .split(',')
-            .where((s) => s.isNotEmpty)
-            .toList(),
+        cognitivePatterns: _parseCognitivePatterns(
+            m['cognitive_patterns'] as String? ?? ''),
       );
+
+  /// 兼容新（JSON 对象数组）和旧（逗号分隔名称字符串）两种存储格式
+  static List<CognitivePatternItem> _parseCognitivePatterns(String raw) {
+    if (raw.isEmpty) return [];
+    try {
+      final list = jsonDecode(raw) as List;
+      return list
+          .map((e) => CognitivePatternItem.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } catch (_) {
+      // 旧格式：逗号分隔的名称
+      return raw
+          .split(',')
+          .where((s) => s.isNotEmpty)
+          .map(CognitivePatternItem.nameOnly)
+          .toList();
+    }
+  }
 }
 
 // ── PersonaCurrent ──────────────────────────────────────────────────────────
@@ -303,6 +342,59 @@ class CognitivePatternStat {
       );
 }
 
+// ── ActionItem ───────────────────────────────────────────────────────────────
+
+enum ActionStatus { pending, completed, skipped }
+
+class ActionItem {
+  final int? id;
+  final String content;
+  final int insightCardId;
+  final int thoughtId;
+  final ActionStatus status;
+  final bool isPinned;
+  final DateTime createdAt;
+  final DateTime? completedAt;
+
+  const ActionItem({
+    this.id,
+    required this.content,
+    required this.insightCardId,
+    required this.thoughtId,
+    this.status = ActionStatus.pending,
+    this.isPinned = false,
+    required this.createdAt,
+    this.completedAt,
+  });
+
+  Map<String, dynamic> toMap() => {
+        if (id != null) 'id': id,
+        'content': content,
+        'insight_card_id': insightCardId,
+        'thought_id': thoughtId,
+        'status': status.name,
+        'is_pinned': isPinned ? 1 : 0,
+        'created_at': createdAt.toIso8601String(),
+        'completed_at': completedAt?.toIso8601String(),
+      };
+
+  factory ActionItem.fromMap(Map<String, dynamic> m) => ActionItem(
+        id: m['id'] as int,
+        content: m['content'] as String,
+        insightCardId: m['insight_card_id'] as int,
+        thoughtId: m['thought_id'] as int,
+        status: ActionStatus.values.firstWhere(
+          (s) => s.name == m['status'],
+          orElse: () => ActionStatus.pending,
+        ),
+        isPinned: (m['is_pinned'] as int? ?? 0) == 1,
+        createdAt: DateTime.parse(m['created_at'] as String),
+        completedAt: m['completed_at'] != null
+            ? DateTime.parse(m['completed_at'] as String)
+            : null,
+      );
+}
+
 // ── Database ────────────────────────────────────────────────────────────────
 
 class AppDatabase {
@@ -310,10 +402,17 @@ class AppDatabase {
   static final AppDatabase instance = AppDatabase._();
 
   static Database? _db;
+  // 防止并发调用 _open() 导致多次打开同一数据库文件
+  static Future<Database>? _opening;
 
   Future<Database> get db async {
-    _db ??= await _open();
-    return _db!;
+    if (_db != null) return _db!;
+    _opening ??= _open().then((d) {
+      _db = d;
+      _opening = null;
+      return d;
+    });
+    return _opening!;
   }
 
   Future<Database> _open() async {
@@ -321,7 +420,7 @@ class AppDatabase {
     final path = join(dbPath, 'oddly.db');
     return openDatabase(
       path,
-      version: 4,
+      version: 5,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -362,6 +461,20 @@ class AppDatabase {
           thought_ids TEXT NOT NULL DEFAULT '',
           first_seen_at TEXT NOT NULL,
           last_seen_at TEXT NOT NULL
+        )
+      ''');
+    }
+    if (oldVersion < 5) {
+      await db.execute('''
+        CREATE TABLE action_items (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          content TEXT NOT NULL,
+          insight_card_id INTEGER NOT NULL,
+          thought_id INTEGER NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending',
+          is_pinned INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          completed_at TEXT
         )
       ''');
     }
@@ -443,6 +556,19 @@ class AppDatabase {
         thought_ids TEXT NOT NULL DEFAULT '',
         first_seen_at TEXT NOT NULL,
         last_seen_at TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE action_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        content TEXT NOT NULL,
+        insight_card_id INTEGER NOT NULL,
+        thought_id INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        is_pinned INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        completed_at TEXT
       )
     ''');
   }
@@ -625,9 +751,16 @@ class AppDatabase {
       'insight_cards',
       where: 'thought_id = ? AND perspective_index = 0',
       whereArgs: [thoughtId],
-      limit: 1,
+      orderBy: 'id ASC',
     );
-    return rows.isEmpty ? null : InsightCard.fromMap(rows.first);
+    for (final row in rows) {
+      try {
+        return InsightCard.fromMap(row);
+      } catch (e) {
+        debugPrint('[DB] insight_cards 解析失败，跳过（id=${row['id']}）: $e');
+      }
+    }
+    return null;
   }
 
   /// 获取指定视角的洞察卡片
@@ -733,5 +866,83 @@ class AppDatabase {
         whereArgs: [name],
       );
     }
+  }
+
+  // ── Action Items ─────────────────────────────────────────────────────────
+
+  Future<int> insertActionItem(ActionItem item) async {
+    final d = await db;
+    return d.insert('action_items', item.toMap());
+  }
+
+  Future<void> deleteActionItem(int id) async {
+    final d = await db;
+    await d.delete('action_items', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> updateActionStatus(int id, ActionStatus status) async {
+    final d = await db;
+    await d.update(
+      'action_items',
+      {
+        'status': status.name,
+        if (status == ActionStatus.completed)
+          'completed_at': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> updateActionPinned(int id, bool isPinned) async {
+    final d = await db;
+    // 置顶是单选，置顶前先清除其他的置顶
+    if (isPinned) {
+      await d.update(
+        'action_items',
+        {'is_pinned': 0},
+        where: 'status = ?',
+        whereArgs: ['pending'],
+      );
+    }
+    await d.update(
+      'action_items',
+      {'is_pinned': isPinned ? 1 : 0},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// 获取所有行动项，置顶优先，再按创建时间升序
+  Future<List<ActionItem>> getAllActionItems() async {
+    final d = await db;
+    final rows = await d.query(
+      'action_items',
+      orderBy: 'is_pinned DESC, created_at ASC',
+    );
+    return rows.map(ActionItem.fromMap).toList();
+  }
+
+  /// 获取首页展示的那一条：待完成中置顶优先，否则最早创建
+  Future<ActionItem?> getFeaturedActionItem() async {
+    final d = await db;
+    final rows = await d.query(
+      'action_items',
+      where: "status = 'pending'",
+      orderBy: 'is_pinned DESC, created_at ASC',
+      limit: 1,
+    );
+    return rows.isEmpty ? null : ActionItem.fromMap(rows.first);
+  }
+
+  /// 获取某张洞察卡片关联的所有行动项（用于洞察卡片里显示书签状态）
+  Future<List<ActionItem>> getActionItemsByInsightCard(int insightCardId) async {
+    final d = await db;
+    final rows = await d.query(
+      'action_items',
+      where: 'insight_card_id = ?',
+      whereArgs: [insightCardId],
+    );
+    return rows.map(ActionItem.fromMap).toList();
   }
 }

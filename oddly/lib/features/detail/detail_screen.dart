@@ -7,6 +7,8 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_decorations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/database/app_database.dart';
+import '../../services/cognitive_pattern_service.dart';
+import '../actions/action_item_provider.dart';
 import 'thought_detail_provider.dart';
 
 class DetailScreen extends ConsumerStatefulWidget {
@@ -46,6 +48,14 @@ class _DetailScreenState extends ConsumerState<DetailScreen>
       parent: _insightAnimController,
       curve: Curves.easeOut,
     ));
+
+    // provider 是 family 缓存，重新进入时可能初始状态已是 showingInsight，
+    // 此时 ref.listen 捕获不到状态切换，需要直接把入场动画置为完成态，
+    // 否则洞察卡片透明度会卡在 0（看不见）
+    final initialState = ref.read(thoughtDetailProvider(widget.thoughtId));
+    if (initialState.phase == DetailPhase.showingInsight) {
+      _insightAnimController.value = 1.0;
+    }
   }
 
   @override
@@ -709,36 +719,13 @@ class _DetailScreenState extends ConsumerState<DetailScreen>
             ],
           ),
           const SizedBox(height: 8),
-          ...card.actionGuide.map((action) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Container(
-                        width: 5,
-                        height: 5,
-                        decoration: BoxDecoration(
-                          color: AppColors.accent,
-                          borderRadius: BorderRadius.circular(3),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        action,
-                        style: GoogleFonts.nunito(
-                          fontSize: 14,
-                          color: AppColors.textPrimary,
-                          height: 1.6,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              )),
+          ...card.actionGuide.asMap().entries.map((entry) {
+            final action = entry.value;
+            return _ActionGuideItem(
+              action: action,
+              card: card,
+            );
+          }),
 
           // 思维惯性 section（全部视角共享，来自主视角分析结果）
           if (patterns.isNotEmpty) ...[
@@ -765,7 +752,11 @@ class _DetailScreenState extends ConsumerState<DetailScreen>
               spacing: 8,
               runSpacing: 8,
               children: patterns
-                  .map((p) => _buildPatternTag(p, highFreq.contains(p)))
+                  .map((p) => _buildPatternTag(
+                        context,
+                        p,
+                        highFreq.contains(p.name),
+                      ))
                   .toList(),
             ),
             // 高频提示
@@ -816,46 +807,175 @@ class _DetailScreenState extends ConsumerState<DetailScreen>
     );
   }
 
-  Widget _buildPatternTag(String pattern, bool isHighFrequency) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: isHighFrequency
-            ? AppColors.accentDeep.withValues(alpha: 0.1)
-            : AppColors.cardBg,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
+  Widget _buildPatternTag(
+      BuildContext context, CognitivePatternItem pattern, bool isHighFrequency) {
+    return GestureDetector(
+      onTap: () => _showPatternDetail(context, pattern, isHighFrequency),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
           color: isHighFrequency
-              ? AppColors.accentDeep.withValues(alpha: 0.35)
-              : AppColors.cardBorder,
-          width: 1.2,
+              ? AppColors.accentDeep.withValues(alpha: 0.1)
+              : AppColors.cardBg,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isHighFrequency
+                ? AppColors.accentDeep.withValues(alpha: 0.35)
+                : AppColors.cardBorder,
+            width: 1.2,
+          ),
         ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (isHighFrequency) ...[
-            Container(
-              width: 5,
-              height: 5,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: AppColors.accentDeep,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isHighFrequency) ...[
+              Container(
+                width: 5,
+                height: 5,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.accentDeep,
+                ),
+              ),
+              const SizedBox(width: 5),
+            ],
+            Text(
+              pattern.name,
+              style: GoogleFonts.nunito(
+                fontSize: 12,
+                fontWeight:
+                    isHighFrequency ? FontWeight.w600 : FontWeight.w500,
+                color: isHighFrequency
+                    ? AppColors.accentDeep
+                    : AppColors.textSecondary,
               ),
             ),
-            const SizedBox(width: 5),
-          ],
-          Text(
-            pattern,
-            style: GoogleFonts.nunito(
-              fontSize: 12,
-              fontWeight: isHighFrequency ? FontWeight.w600 : FontWeight.w500,
+            const SizedBox(width: 4),
+            Icon(
+              Icons.info_outline_rounded,
+              size: 11,
               color: isHighFrequency
-                  ? AppColors.accentDeep
-                  : AppColors.textSecondary,
+                  ? AppColors.accentDeep.withValues(alpha: 0.6)
+                  : AppColors.textHint,
             ),
-          ),
-        ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showPatternDetail(
+      BuildContext context, CognitivePatternItem pattern, bool isHighFrequency) {
+    final description = kCognitivePatternDescriptions[pattern.name];
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: AppColors.pageBg,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 20),
+                decoration: BoxDecoration(
+                  color: AppColors.cardBorder,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Row(
+              children: [
+                Icon(Icons.psychology_outlined,
+                    size: 16,
+                    color: isHighFrequency
+                        ? AppColors.accentDeep
+                        : AppColors.textSecondary),
+                const SizedBox(width: 8),
+                Text(
+                  pattern.name,
+                  style: GoogleFonts.nunito(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: isHighFrequency
+                        ? AppColors.accentDeep
+                        : AppColors.textPrimary,
+                  ),
+                ),
+                if (isHighFrequency) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppColors.accentDeep.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      '高频出现',
+                      style: GoogleFonts.nunito(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.accentDeep,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            if (description != null) ...[
+              const SizedBox(height: 14),
+              Text(
+                description,
+                style: GoogleFonts.nunito(
+                  fontSize: 14,
+                  height: 1.6,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
+            if (pattern.reason.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppColors.cardBg,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.cardBorder),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '在这条记录里',
+                      style: GoogleFonts.nunito(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textHint,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      pattern.reason,
+                      style: GoogleFonts.nunito(
+                        fontSize: 14,
+                        height: 1.6,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -1301,5 +1421,99 @@ class _DetailScreenState extends ConsumerState<DetailScreen>
         ],
       ),
     );
+  }
+}
+
+// ── 行动建议条目（带书签状态）────────────────────────────────────────────────
+
+class _ActionGuideItem extends ConsumerWidget {
+  final String action;
+  final InsightCard card;
+
+  const _ActionGuideItem({required this.action, required this.card});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final actionState = ref.watch(actionItemProvider);
+    final cardItems = actionState.all
+        .where((a) => a.insightCardId == (card.id ?? -1) && a.content == action)
+        .toList();
+    final savedItem = cardItems.isNotEmpty ? cardItems.first : null;
+    final isCompleted = savedItem?.status == ActionStatus.completed;
+    final isSaved = savedItem != null;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Container(
+              width: 5,
+              height: 5,
+              decoration: BoxDecoration(
+                color: isCompleted
+                    ? AppColors.textHint
+                    : AppColors.accent,
+                borderRadius: BorderRadius.circular(3),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              action,
+              style: GoogleFonts.nunito(
+                fontSize: 14,
+                color: isCompleted
+                    ? AppColors.textHint
+                    : AppColors.textPrimary,
+                height: 1.6,
+                decoration:
+                    isCompleted ? TextDecoration.lineThrough : null,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: () => _onTapBookmark(ref, savedItem, card),
+            child: Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Icon(
+                isCompleted
+                    ? Icons.check_circle_rounded
+                    : isSaved
+                        ? Icons.bookmark_rounded
+                        : Icons.bookmark_border_rounded,
+                size: 18,
+                color: isCompleted
+                    ? AppColors.accent
+                    : isSaved
+                        ? AppColors.accentDeep
+                        : AppColors.textHint,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _onTapBookmark(
+      WidgetRef ref, ActionItem? existing, InsightCard card) {
+    final notifier = ref.read(actionItemProvider.notifier);
+    if (existing == null) {
+      // 未收藏 → 收藏
+      notifier.save(
+        content: action,
+        insightCardId: card.id!,
+        thoughtId: card.thoughtId,
+      );
+    } else if (existing.status == ActionStatus.pending) {
+      // 已收藏未完成 → 取消收藏
+      notifier.remove(existing.id!);
+    }
+    // 已完成状态：不允许操作，icon 只读
   }
 }

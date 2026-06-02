@@ -24,7 +24,7 @@ class AiInsightResult {
   final List<String> emotionTags;
   final String corePattern;
   final List<String> recommendedNextFrameworks;
-  final List<String> cognitivePatterns;
+  final List<CognitivePatternItem> cognitivePatterns;
 
   const AiInsightResult({
     required this.interpretation,
@@ -38,6 +38,7 @@ class AiInsightResult {
   });
 
   factory AiInsightResult.fromJson(Map<String, dynamic> json) {
+    final rawPatterns = json['cognitive_patterns'] as List? ?? [];
     return AiInsightResult(
       interpretation: json['interpretation'] as String,
       psychologyTheory: json['psychology_theory'] as String,
@@ -47,8 +48,12 @@ class AiInsightResult {
       corePattern: json['core_pattern'] as String? ?? '',
       recommendedNextFrameworks:
           (json['recommended_next_frameworks'] as List? ?? []).cast<String>(),
-      cognitivePatterns:
-          (json['cognitive_patterns'] as List? ?? []).cast<String>(),
+      cognitivePatterns: rawPatterns.map((e) {
+        if (e is Map<String, dynamic>) {
+          return CognitivePatternItem.fromJson(e);
+        }
+        return CognitivePatternItem.nameOnly(e as String);
+      }).toList(),
     );
   }
 }
@@ -262,19 +267,57 @@ class AiService {
   }
 
   Map<String, dynamic> _parseJson(String raw) {
+    // 尝试直接解析
     try {
       return jsonDecode(raw) as Map<String, dynamic>;
-    } catch (e) {
-      // 有时模型会在 JSON 外面包裹 markdown 代码块，做一次清洗
-      final cleaned = raw
-          .replaceAll('```json', '')
-          .replaceAll('```', '')
-          .trim();
-      try {
-        return jsonDecode(cleaned) as Map<String, dynamic>;
-      } catch (_) {
-        throw Exception('AI 返回格式解析失败，原始内容：${raw.length > 200 ? raw.substring(0, 200) : raw}');
+    } catch (_) {}
+
+    // 清洗 markdown 代码块包裹
+    final cleaned = raw
+        .replaceAll('```json', '')
+        .replaceAll('```', '')
+        .trim();
+    try {
+      return jsonDecode(cleaned) as Map<String, dynamic>;
+    } catch (_) {}
+
+    // 转义 JSON 字符串值内部的字面量换行符（LLM 常见输出问题）
+    final sanitized = _escapeNewlinesInStrings(cleaned);
+    try {
+      return jsonDecode(sanitized) as Map<String, dynamic>;
+    } catch (_) {
+      debugPrint('[AI] JSON 解析失败，原始内容（前500字）: '
+          '${raw.length > 500 ? raw.substring(0, 500) : raw}');
+      throw Exception(
+          'AI 返回格式解析失败，原始内容：${raw.length > 200 ? raw.substring(0, 200) : raw}');
+    }
+  }
+
+  /// 将 JSON 字符串值内部的字面量 \n / \r 转义为合法的 \\n / \\r。
+  /// 在字符串外部（键值对之间）的换行属于合法空白，保持不动。
+  String _escapeNewlinesInStrings(String raw) {
+    final buf = StringBuffer();
+    bool inString = false;
+    bool escaped = false;
+    for (int i = 0; i < raw.length; i++) {
+      final c = raw[i];
+      if (escaped) {
+        buf.write(c);
+        escaped = false;
+      } else if (c == '\\') {
+        buf.write(c);
+        escaped = true;
+      } else if (c == '"') {
+        inString = !inString;
+        buf.write(c);
+      } else if (inString && c == '\n') {
+        buf.write('\\n');
+      } else if (inString && c == '\r') {
+        buf.write('\\r');
+      } else {
+        buf.write(c);
       }
     }
+    return buf.toString();
   }
 }

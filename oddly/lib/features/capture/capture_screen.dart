@@ -12,7 +12,10 @@ import '../../core/theme/app_theme.dart';
 import '../../data/database/app_database.dart';
 import '../../services/ali_asr_service.dart';
 import '../../services/context_service.dart';
+import '../actions/action_item_provider.dart';
+import '../actions/action_list_screen.dart';
 import '../detail/detail_screen.dart';
+import '../timeline/timeline_provider.dart';
 import 'home_stats_provider.dart';
 
 class CaptureScreen extends ConsumerStatefulWidget {
@@ -51,10 +54,6 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       CurvedAnimation(parent: _submitAnimController, curve: Curves.easeInOut),
     );
 
-    // 自动弹出键盘
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _focusNode.requestFocus();
-    });
   }
 
   @override
@@ -152,8 +151,9 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     });
 
     if (!mounted) return;
-    // 刷新首页统计
+    // 刷新首页统计 + 时间线
     ref.read(homeStatsProvider.notifier).load();
+    ref.read(timelineProvider.notifier).load();
 
     // 跳转到详情页，触发 AI 追问流程
     Navigator.push(
@@ -170,7 +170,10 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
         transitionDuration: const Duration(milliseconds: 300),
       ),
     ).then((_) {
-      if (mounted) ref.read(homeStatsProvider.notifier).load();
+      if (mounted) {
+        ref.read(homeStatsProvider.notifier).load();
+        ref.read(timelineProvider.notifier).load();
+      }
     });
   }
 
@@ -185,9 +188,11 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
 
           SafeArea(
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _buildTopBar(),
                 _buildStatsCard(),
+                _buildActionCard(),
                 Expanded(child: _buildInputArea()),
                 _buildBottomBar(),
               ],
@@ -276,14 +281,65 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     return DateFormat('M月d日').format(dt);
   }
 
+  Widget _buildActionCard() {
+    final actionState = ref.watch(actionItemProvider);
+    final featured = actionState.featured;
+    if (featured == null) return const SizedBox.shrink();
+
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 300),
+      child: _ActionCardWidget(
+        key: ValueKey(featured.id),
+        item: featured,
+        onComplete: () =>
+            ref.read(actionItemProvider.notifier).complete(featured.id!),
+        onSkip: () =>
+            ref.read(actionItemProvider.notifier).skip(featured.id!),
+        onTapContent: () => Navigator.of(context).push(
+          PageRouteBuilder(
+            pageBuilder: (_, __, ___) =>
+                DetailScreen(thoughtId: featured.thoughtId),
+            transitionsBuilder: (_, animation, __, child) => SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(1, 0),
+                end: Offset.zero,
+              ).animate(CurvedAnimation(
+                  parent: animation, curve: Curves.easeOutCubic)),
+              child: child,
+            ),
+            transitionDuration: const Duration(milliseconds: 300),
+          ),
+        ),
+        onTapList: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const ActionListScreen()),
+        ),
+      ),
+    );
+  }
+
   Widget _buildTopBar() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
-      child: HandwrittenText(
-        'Oddly',
-        fontSize: 26,
-        color: AppColors.accent,
-        fontWeight: FontWeight.w700,
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Oddly',
+            style: GoogleFonts.caveat(
+              fontSize: 32,
+              color: AppColors.accentDeep,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            '随时记下此刻的想法',
+            style: GoogleFonts.nunitoSans(
+              fontSize: 13,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -297,15 +353,15 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // 提示语（手写风）
-            AnimatedOpacity(
-              opacity: _hasContent ? 0.0 : 1.0,
-              duration: const Duration(milliseconds: 200),
-              child: HandwrittenText(
-                '有什么奇怪的想法？',
-                fontSize: 20,
-                color: AppColors.textHint,
+              AnimatedOpacity(
+                opacity: _hasContent ? 0.0 : 1.0,
+                duration: const Duration(milliseconds: 200),
+                child: HandwrittenText(
+                  '此刻在想什么？',
+                  fontSize: 20,
+                  color: AppColors.textHint,
+                ),
               ),
-            ),
             const SizedBox(height: 8),
             // 输入框
             Expanded(
@@ -418,6 +474,90 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
                 ),
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── 首页行动卡片 ──────────────────────────────────────────────────────────────
+
+class _ActionCardWidget extends StatelessWidget {
+  final ActionItem item;
+  final VoidCallback onComplete;
+  final VoidCallback onSkip;
+  final VoidCallback onTapContent;
+  final VoidCallback onTapList;
+
+  const _ActionCardWidget({
+    super.key,
+    required this.item,
+    required this.onComplete,
+    required this.onSkip,
+    required this.onTapContent,
+    required this.onTapList,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+      padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+      decoration: BoxDecoration(
+        color: AppColors.cardBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.cardBorder),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          // 左侧点
+          Container(
+            width: 6,
+            height: 6,
+            margin: const EdgeInsets.only(right: 10),
+            decoration: BoxDecoration(
+              color: AppColors.accent,
+              shape: BoxShape.circle,
+            ),
+          ),
+          // 文字（点击 → 来源洞察卡片）
+          Expanded(
+            child: GestureDetector(
+              onTap: onTapContent,
+              child: Text(
+                item.content,
+                style: GoogleFonts.nunito(
+                  fontSize: 13,
+                  color: AppColors.textPrimary,
+                  height: 1.5,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          // 清单入口
+          GestureDetector(
+            onTap: onTapList,
+            child: Icon(Icons.format_list_bulleted_rounded,
+                size: 16, color: AppColors.textHint),
+          ),
+          const SizedBox(width: 8),
+          // 跳过
+          GestureDetector(
+            onTap: onSkip,
+            child: Icon(Icons.close_rounded,
+                size: 18, color: AppColors.textHint),
+          ),
+          const SizedBox(width: 8),
+          // 完成
+          GestureDetector(
+            onTap: onComplete,
+            child: Icon(Icons.check_circle_outline_rounded,
+                size: 20, color: AppColors.accent),
           ),
         ],
       ),

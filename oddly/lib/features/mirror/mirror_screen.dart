@@ -6,6 +6,8 @@ import 'package:intl/intl.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_decorations.dart';
 import '../../data/database/app_database.dart';
+import '../../features/actions/action_item_provider.dart';
+import '../../features/actions/action_list_screen.dart';
 import '../../features/detail/detail_screen.dart';
 import '../../services/cognitive_pattern_service.dart';
 import 'mirror_provider.dart';
@@ -66,25 +68,88 @@ class _MirrorScreenState extends ConsumerState<MirrorScreen>
   }
 
   Widget _buildTopBar() {
+    final actionState = ref.watch(actionItemProvider);
+    final pendingCount = actionState.pending.length;
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 4),
-      child: Column(
+      padding: const EdgeInsets.fromLTRB(24, 16, 20, 4),
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Mirror',
-            style: GoogleFonts.caveat(
-              fontSize: 32,
-              color: AppColors.accentDeep,
-              fontWeight: FontWeight.w600,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Mirror',
+                  style: GoogleFonts.caveat(
+                    fontSize: 32,
+                    color: AppColors.accentDeep,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '水面之下的你',
+                  style: GoogleFonts.nunitoSans(
+                    fontSize: 13,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 2),
-          Text(
-            '水面之下的你',
-            style: GoogleFonts.nunitoSans(
-              fontSize: 13,
-              color: AppColors.textSecondary,
+          // 行动清单入口
+          GestureDetector(
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                  builder: (_) => const ActionListScreen()),
+            ),
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              decoration: BoxDecoration(
+                color: AppColors.cardBg,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: AppColors.cardBorder),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.spa_outlined,
+                      size: 14, color: AppColors.accentDeep),
+                  const SizedBox(width: 5),
+                  Text(
+                    '想试试的事',
+                    style: GoogleFonts.nunito(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.accentDeep,
+                    ),
+                  ),
+                  if (pendingCount > 0) ...[
+                    const SizedBox(width: 5),
+                    Container(
+                      width: 16,
+                      height: 16,
+                      decoration: BoxDecoration(
+                        color: AppColors.accent,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(
+                        child: Text(
+                          '$pendingCount',
+                          style: GoogleFonts.nunito(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
         ],

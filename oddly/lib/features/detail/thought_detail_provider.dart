@@ -30,8 +30,8 @@ class DetailState {
   final List<String> recommendedFrameworks;
   final bool isSwitchingPerspective;
   // 思维惯性：来自第一张卡片，全部视角共享
-  final List<String> primaryCognitivePatterns;
-  // 已达到高频门槛（≥3次）的模式
+  final List<CognitivePatternItem> primaryCognitivePatterns;
+  // 已达到高频门槛（≥3次）的模式名称列表
   final List<String> highFrequencyPatterns;
 
   int get totalPerspectives =>
@@ -65,7 +65,7 @@ class DetailState {
     int? perspectiveIndex,
     List<String>? recommendedFrameworks,
     bool? isSwitchingPerspective,
-    List<String>? primaryCognitivePatterns,
+    List<CognitivePatternItem>? primaryCognitivePatterns,
     List<String>? highFrequencyPatterns,
     bool clearInsight = false,
     bool clearQuestion = false,
@@ -117,12 +117,19 @@ class ThoughtDetailNotifier extends StateNotifier<DetailState> {
       final conversations = await _db.getConversationsForThought(thoughtId);
       final insightCard = await _db.getInsightCard(thoughtId);
 
+      // ① 已有洞察卡片 → 直接展示
       if (insightCard != null) {
-        // 已经分析过了，直接展示；顺便检查高频思维惯性
-        final highFreq = insightCard.cognitivePatterns.isEmpty
-            ? <String>[]
-            : await CognitivePatternService.instance
-                .getHighFrequencyPatterns(insightCard.cognitivePatterns);
+        // 高频模式查询单独 try，避免异常影响整个 init 流程
+        List<String> highFreq = [];
+        if (insightCard.cognitivePatterns.isNotEmpty) {
+          try {
+            highFreq = await CognitivePatternService.instance
+                .getHighFrequencyPatterns(
+                    insightCard.cognitivePatterns.map((p) => p.name).toList());
+          } catch (e) {
+            debugPrint('[Oddly] 高频模式查询失败（不影响展示）: $e');
+          }
+        }
         state = state.copyWith(
           phase: DetailPhase.showingInsight,
           thought: thought,
@@ -135,6 +142,27 @@ class ThoughtDetailNotifier extends StateNotifier<DetailState> {
         return;
       }
 
+      // ② 有历史对话但没有洞察卡片（上次可能中途退出或生成失败）
+      if (conversations.isNotEmpty) {
+        final lastConv = conversations.last;
+        // 最后一条还没有回答且没有跳过 → 恢复到追问界面让用户继续
+        if (lastConv.answer == null && !lastConv.wasSkipped) {
+          state = state.copyWith(
+            phase: DetailPhase.askingQuestion,
+            thought: thought,
+            conversations: conversations,
+            currentQuestion: lastConv.question,
+            currentConvId: lastConv.id,
+          );
+          return;
+        }
+        // 所有问题已回答或已跳过 → 直接生成洞察（上次生成可能失败了）
+        state = state.copyWith(thought: thought, conversations: conversations);
+        await _generateInsight();
+        return;
+      }
+
+      // ③ 全新想法 → 开始追问
       state = state.copyWith(thought: thought, conversations: conversations);
       await _askFirstQuestion(thought);
     } catch (e, stack) {
@@ -304,13 +332,17 @@ class ThoughtDetailNotifier extends StateNotifier<DetailState> {
         if (result.cognitivePatterns.isNotEmpty) {
           CognitivePatternService.instance.aggregate(
             thoughtId: thoughtId,
-            patterns: result.cognitivePatterns,
+            patterns: result.cognitivePatterns.map((p) => p.name).toList(),
           ).then((_) async {
-            // 聚合完成后检查哪些达到高频门槛，更新状态
-            final highFreq = await CognitivePatternService.instance
-                .getHighFrequencyPatterns(result.cognitivePatterns);
-            if (mounted) {
-              state = state.copyWith(highFrequencyPatterns: highFreq);
+            try {
+              final highFreq = await CognitivePatternService.instance
+                  .getHighFrequencyPatterns(
+                      result.cognitivePatterns.map((p) => p.name).toList());
+              if (mounted) {
+                state = state.copyWith(highFrequencyPatterns: highFreq);
+              }
+            } catch (e) {
+              debugPrint('[Oddly] 高频模式更新失败（不影响展示）: $e');
             }
           }).ignore();
         }
