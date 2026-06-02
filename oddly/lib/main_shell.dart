@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'core/shell_tab_provider.dart';
 import 'core/theme/app_colors.dart';
 import 'features/capture/capture_screen.dart';
 import 'features/mirror/mirror_provider.dart';
@@ -33,6 +34,14 @@ class _MainShellState extends ConsumerState<MainShell> {
 
   @override
   Widget build(BuildContext context) {
+    // 外部（如 DetailScreen）写入 shellTabProvider 时自动切换 tab
+    ref.listen<int>(shellTabProvider, (_, index) {
+      if (index >= 0) {
+        switchToTab(index);
+        ref.read(shellTabProvider.notifier).state = -1;
+      }
+    });
+
     return Scaffold(
       backgroundColor: AppColors.pageBg,
       body: IndexedStack(

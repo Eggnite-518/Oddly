@@ -68,9 +68,8 @@ class ActionListScreen extends ConsumerWidget {
       BuildContext context, WidgetRef ref, ActionItemState state) {
     final pending = state.pending;
     final completed = state.completed;
-    final skipped = state.skipped;
 
-    if (pending.isEmpty && completed.isEmpty && skipped.isEmpty) {
+    if (pending.isEmpty && completed.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(40),
@@ -106,19 +105,11 @@ class ActionListScreen extends ConsumerWidget {
                 item: item,
                 onComplete: () =>
                     ref.read(actionItemProvider.notifier).complete(item.id!),
-                onSkip: () =>
-                    ref.read(actionItemProvider.notifier).skip(item.id!),
                 onTogglePin: () => ref
                     .read(actionItemProvider.notifier)
                     .togglePin(item.id!, !item.isPinned),
-                onTap: () => _openDetail(context, item.thoughtId),
-              )),
-        ],
-        if (skipped.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          _SectionHeader(label: '跳过', count: skipped.length),
-          ...skipped.map((item) => _ActionTile(
-                item: item,
+                onDelete: () =>
+                    ref.read(actionItemProvider.notifier).remove(item.id!),
                 onTap: () => _openDetail(context, item.thoughtId),
               )),
         ],
@@ -127,6 +118,8 @@ class ActionListScreen extends ConsumerWidget {
           _SectionHeader(label: '已完成', count: completed.length),
           ...completed.map((item) => _ActionTile(
                 item: item,
+                onDelete: () =>
+                    ref.read(actionItemProvider.notifier).remove(item.id!),
                 onTap: () => _openDetail(context, item.thoughtId),
               )),
         ],
@@ -200,25 +193,131 @@ class _ActionTile extends StatelessWidget {
   final ActionItem item;
   final VoidCallback onTap;
   final VoidCallback? onComplete;
-  final VoidCallback? onSkip;
   final VoidCallback? onTogglePin;
+  final VoidCallback? onDelete;
 
   const _ActionTile({
     required this.item,
     required this.onTap,
     this.onComplete,
-    this.onSkip,
     this.onTogglePin,
+    this.onDelete,
   });
+
+  void _confirmDelete(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: AppColors.pageBg,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 20),
+                decoration: BoxDecoration(
+                  color: AppColors.cardBorder,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Text(
+              '删除这条行动？',
+              style: GoogleFonts.nunito(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              item.content,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.nunito(
+                fontSize: 13,
+                color: AppColors.textSecondary,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => Navigator.of(ctx).pop(),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: AppColors.cardBg,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppColors.cardBorder),
+                      ),
+                      child: Center(
+                        child: Text(
+                          '取消',
+                          style: GoogleFonts.nunito(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () {
+                      Navigator.of(ctx).pop();
+                      onDelete?.call();
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                            color: Colors.red.shade200),
+                      ),
+                      child: Center(
+                        child: Text(
+                          '删除',
+                          style: GoogleFonts.nunito(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.red.shade600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final isCompleted = item.status == ActionStatus.completed;
-    final isSkipped = item.status == ActionStatus.skipped;
-    final isDone = isCompleted || isSkipped;
+    final isDone = isCompleted;
 
     return GestureDetector(
       onTap: onTap,
+      onLongPress: onDelete != null ? () => _confirmDelete(context) : null,
       child: Container(
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
@@ -302,23 +401,13 @@ class _ActionTile extends StatelessWidget {
                 ],
               ),
             ),
-            // 操作按钮（仅待完成）
-            if (!isDone && onComplete != null && onSkip != null) ...[
+            // 完成按钮（仅待完成）
+            if (!isDone && onComplete != null) ...[
               const SizedBox(width: 8),
-              Column(
-                children: [
-                  GestureDetector(
-                    onTap: onComplete,
-                    child: Icon(Icons.check_circle_outline_rounded,
-                        size: 20, color: AppColors.accent),
-                  ),
-                  const SizedBox(height: 8),
-                  GestureDetector(
-                    onTap: onSkip,
-                    child: Icon(Icons.close_rounded,
-                        size: 18, color: AppColors.textHint),
-                  ),
-                ],
+              GestureDetector(
+                onTap: onComplete,
+                child: Icon(Icons.check_circle_outline_rounded,
+                    size: 22, color: AppColors.accent),
               ),
             ],
           ],

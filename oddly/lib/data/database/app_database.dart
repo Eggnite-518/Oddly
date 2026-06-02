@@ -344,7 +344,7 @@ class CognitivePatternStat {
 
 // ── ActionItem ───────────────────────────────────────────────────────────────
 
-enum ActionStatus { pending, completed, skipped }
+enum ActionStatus { pending, completed }
 
 class ActionItem {
   final int? id;
@@ -872,6 +872,7 @@ class AppDatabase {
 
   Future<int> insertActionItem(ActionItem item) async {
     final d = await db;
+    await _ensureActionItemsTable(d);
     return d.insert('action_items', item.toMap());
   }
 
@@ -913,9 +914,25 @@ class AppDatabase {
     );
   }
 
+  Future<void> _ensureActionItemsTable(Database d) async {
+    await d.execute('''
+      CREATE TABLE IF NOT EXISTS action_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        content TEXT NOT NULL,
+        insight_card_id INTEGER NOT NULL,
+        thought_id INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        is_pinned INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        completed_at TEXT
+      )
+    ''');
+  }
+
   /// 获取所有行动项，置顶优先，再按创建时间升序
   Future<List<ActionItem>> getAllActionItems() async {
     final d = await db;
+    await _ensureActionItemsTable(d);
     final rows = await d.query(
       'action_items',
       orderBy: 'is_pinned DESC, created_at ASC',
@@ -926,6 +943,7 @@ class AppDatabase {
   /// 获取首页展示的那一条：待完成中置顶优先，否则最早创建
   Future<ActionItem?> getFeaturedActionItem() async {
     final d = await db;
+    await _ensureActionItemsTable(d);
     final rows = await d.query(
       'action_items',
       where: "status = 'pending'",

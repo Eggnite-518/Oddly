@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import '../../core/shell_tab_provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_decorations.dart';
 import '../../core/theme/app_theme.dart';
@@ -764,8 +765,9 @@ class _DetailScreenState extends ConsumerState<DetailScreen>
               const SizedBox(height: 10),
               GestureDetector(
                 onTap: () {
-                  // Mirror 页通过 bottom nav 切换，暂用 Navigator.pop 引导
-                  Navigator.pop(context);
+                  // 通知 MainShell 切换到 Mirror tab（index=2），再 pop 回根路由
+                  ref.read(shellTabProvider.notifier).state = 2;
+                  Navigator.of(context).popUntil((route) => route.isFirst);
                 },
                 child: Container(
                   padding: const EdgeInsets.symmetric(
@@ -785,7 +787,7 @@ class _DetailScreenState extends ConsumerState<DetailScreen>
                       const SizedBox(width: 6),
                       Flexible(
                         child: Text(
-                          '「${highFreq.first}」已出现 3 次以上 · 去 Mirror 查看全貌',
+                          '「${highFreq.first}」已出现 ${highFreq.length >= 3 ? "3" : highFreq.length} 次以上 · 在 Mirror 查看哪几条想法触发了它',
                           style: GoogleFonts.nunito(
                             fontSize: 12,
                             color: AppColors.accentDeep,

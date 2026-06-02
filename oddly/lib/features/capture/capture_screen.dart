@@ -26,7 +26,7 @@ class CaptureScreen extends ConsumerStatefulWidget {
 }
 
 class _CaptureScreenState extends ConsumerState<CaptureScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
   final AudioRecorder _recorder = AudioRecorder();
@@ -39,6 +39,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _controller.addListener(() {
       final hasContent = _controller.text.trim().isNotEmpty;
       if (hasContent != _hasContent) {
@@ -53,11 +54,17 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     _submitScaleAnim = Tween<double>(begin: 1.0, end: 0.93).animate(
       CurvedAnimation(parent: _submitAnimController, curve: Curves.easeInOut),
     );
+  }
 
+  // 键盘高度变化（弹出/收起）时触发重建，重新计算 keyboardVisible
+  @override
+  void didChangeMetrics() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _controller.dispose();
     _focusNode.dispose();
     _submitAnimController.dispose();
@@ -179,8 +186,13 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
 
   @override
   Widget build(BuildContext context) {
+    // 直接读 render View 的原始 inset（Scaffold 不会把它清零），
+    // 由 didChangeMetrics 触发重建，键盘弹出/收起都能正确响应
+    final keyboardVisible = View.of(context).viewInsets.bottom > 0;
+
     return Scaffold(
       backgroundColor: AppColors.pageBg,
+      resizeToAvoidBottomInset: true,
       body: Stack(
         children: [
           // 背景装饰小点
@@ -191,8 +203,21 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _buildTopBar(),
-                _buildStatsCard(),
-                _buildActionCard(),
+                // 键盘弹出时收起统计和行动卡片，让输入区域更宽敞
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOut,
+                  alignment: Alignment.topCenter,
+                  clipBehavior: Clip.hardEdge,
+                  child: keyboardVisible
+                      ? const SizedBox(width: double.infinity)
+                      : Column(
+                          children: [
+                            _buildStatsCard(),
+                            _buildActionCard(),
+                          ],
+                        ),
+                ),
                 Expanded(child: _buildInputArea()),
                 _buildBottomBar(),
               ],
@@ -286,15 +311,13 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     final featured = actionState.featured;
     if (featured == null) return const SizedBox.shrink();
 
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 300),
-      child: _ActionCardWidget(
+    return _ActionCardWidget(
         key: ValueKey(featured.id),
         item: featured,
         onComplete: () =>
             ref.read(actionItemProvider.notifier).complete(featured.id!),
         onSkip: () =>
-            ref.read(actionItemProvider.notifier).skip(featured.id!),
+            ref.read(actionItemProvider.notifier).dismissOnHome(featured.id!),
         onTapContent: () => Navigator.of(context).push(
           PageRouteBuilder(
             pageBuilder: (_, __, ___) =>
@@ -313,7 +336,6 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
         onTapList: () => Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => const ActionListScreen()),
         ),
-      ),
     );
   }
 
@@ -345,27 +367,14 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
   }
 
   Widget _buildInputArea() {
-    return GestureDetector(
-      onTap: () => _focusNode.requestFocus(),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 32, 24, 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // 提示语（手写风）
-              AnimatedOpacity(
-                opacity: _hasContent ? 0.0 : 1.0,
-                duration: const Duration(milliseconds: 200),
-                child: HandwrittenText(
-                  '此刻在想什么？',
-                  fontSize: 20,
-                  color: AppColors.textHint,
-                ),
-              ),
-            const SizedBox(height: 8),
-            // 输入框
-            Expanded(
-              child: TextField(
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 32, 24, 16),
+      child: Stack(
+        alignment: Alignment.topLeft,
+        children: [
+          // 输入框铺满整个区域，光标从顶部开始
+          Positioned.fill(
+            child: TextField(
                 controller: _controller,
                 focusNode: _focusNode,
                 maxLines: null,
@@ -377,7 +386,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
                   color: AppColors.textPrimary,
                   height: 1.7,
                 ),
-                decoration: InputDecoration(
+                decoration: const InputDecoration(
                   border: InputBorder.none,
                   hintText: '',
                   contentPadding: EdgeInsets.zero,
@@ -386,8 +395,19 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
                 textInputAction: TextInputAction.newline,
               ),
             ),
-          ],
-        ),
+            // 提示语叠在顶部，有内容后淡出
+            AnimatedOpacity(
+              opacity: _hasContent ? 0.0 : 1.0,
+              duration: const Duration(milliseconds: 200),
+              child: IgnorePointer(
+                child: HandwrittenText(
+                  '此刻在想什么？',
+                  fontSize: 20,
+                  color: AppColors.textHint,
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -503,63 +523,90 @@ class _ActionCardWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       margin: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-      padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
       decoration: BoxDecoration(
         color: AppColors.cardBg,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: AppColors.cardBorder),
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+      child: IntrinsicHeight(
+        child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 左侧点
-          Container(
-            width: 6,
-            height: 6,
-            margin: const EdgeInsets.only(right: 10),
-            decoration: BoxDecoration(
-              color: AppColors.accent,
-              shape: BoxShape.circle,
-            ),
-          ),
-          // 文字（点击 → 来源洞察卡片）
+          // 左侧：文字 + 次要操作
           Expanded(
             child: GestureDetector(
               onTap: onTapContent,
-              child: Text(
-                item.content,
-                style: GoogleFonts.nunito(
-                  fontSize: 13,
-                  color: AppColors.textPrimary,
-                  height: 1.5,
+              behavior: HitTestBehavior.opaque,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 10, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.content,
+                      style: GoogleFonts.nunito(
+                        fontSize: 13,
+                        color: AppColors.textPrimary,
+                        height: 1.5,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    // 次要操作：跳过 · 所有行动
+                    Row(
+                      children: [
+                        GestureDetector(
+                          onTap: onSkip,
+                          child: Text(
+                            '跳过',
+                            style: GoogleFonts.nunito(
+                              fontSize: 12,
+                              color: AppColors.textHint,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          '  ·  ',
+                          style: GoogleFonts.nunito(
+                            fontSize: 12,
+                            color: AppColors.cardBorder,
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: onTapList,
+                          child: Text(
+                            '所有行动',
+                            style: GoogleFonts.nunito(
+                              fontSize: 12,
+                              color: AppColors.textHint,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
               ),
             ),
           ),
-          const SizedBox(width: 6),
-          // 清单入口
-          GestureDetector(
-            onTap: onTapList,
-            child: Icon(Icons.format_list_bulleted_rounded,
-                size: 16, color: AppColors.textHint),
-          ),
-          const SizedBox(width: 8),
-          // 跳过
-          GestureDetector(
-            onTap: onSkip,
-            child: Icon(Icons.close_rounded,
-                size: 18, color: AppColors.textHint),
-          ),
-          const SizedBox(width: 8),
-          // 完成
+          // 右侧：完成按钮
           GestureDetector(
             onTap: onComplete,
-            child: Icon(Icons.check_circle_outline_rounded,
-                size: 20, color: AppColors.accent),
+            child: Container(
+              width: 52,
+              decoration: BoxDecoration(
+                color: AppColors.accent.withValues(alpha: 0.08),
+                borderRadius: const BorderRadius.horizontal(
+                    right: Radius.circular(13)),
+              ),
+              child: Icon(
+                Icons.check_rounded,
+                color: AppColors.accent,
+                size: 22,
+              ),
+            ),
           ),
         ],
+        ),
       ),
     );
   }
