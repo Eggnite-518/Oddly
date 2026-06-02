@@ -101,6 +101,13 @@ Prompt 设计强调：**温暖、好奇、不评判、非诊断**。System Promp
 | ![捕捉](docs/screenshots/capture.png) | ![追问](docs/screenshots/trace.png) | ![洞察](docs/screenshots/insight.png) |
 | *Catch 输入页* | *苏格拉底式对话* | *结构化洞察卡片* |
 
+### 行动闭环
+
+| 收藏行动建议 | 首页提醒 | 行动清单 |
+| :---: | :---: | :---: |
+| ![收藏](docs/screenshots/action_bookmark.png) | ![首页行动卡](docs/screenshots/action_home.png) | ![清单](docs/screenshots/action_list.png) |
+| *洞察卡片一键收藏* | *首页卡片 · 完成 / 切换* | *行动清单管理* |
+
 ### 回顾与模式
 
 | 时间轴 | 暗流 | 认知模式 |
