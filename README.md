@@ -29,11 +29,11 @@
 
 | 渠道 | 说明 |
 |------|------|
-| **[GitHub Releases](https://github.com/Eggnite-518/Oddly/releases)** | 下载最新 APK，推荐 |
-| **自行编译** | 克隆仓库后本地构建，需自备 API Key（见下方快速开始） |
+| **[GitHub Releases](https://github.com/Eggnite-518/Oddly/releases)** | 下载最新 APK，安装即用，推荐 |
+| **自行编译** | 克隆仓库后本地构建（见下方快速开始） |
 
 > 安装 APK 时，请在 Android 系统设置中允许「安装未知来源应用」。  
-> AI 功能需配置 **DeepSeek API Key**；语音转写需 **阿里云 NLS** 凭证（可选）。
+> AI 与语音功能**开箱即用**，无需自行配置任何 API Key。
 
 **⚠️ 友情提示：** Oddly 是个人作品集项目，功能仍在持续迭代中。如遇问题欢迎通过 [Issues](https://github.com/Eggnite-518/Oddly/issues) 反馈。
 
@@ -50,7 +50,7 @@ Oddly 不是又一个 AI 日记，而是一条 **Catch → Trace → Mirror → 
 - 🔍 **结构化洞察卡片** — 深层解读 + 心理学框架 + 可解释的思维惯性 + 行动建议，温暖且非诊断性
 - 🌊 **看见长期模式** — 从多条记录中提炼「暗流」主题与认知模式统计
 - ✅ **行动闭环** — 收藏建议进入行动清单，首页持续提醒，完成后洞察卡片同步更新
-- 🔒 **本地优先** — 无自建后端，想法与对话默认仅存本机 SQLite
+- 🔒 **本地优先** — 想法与对话默认仅存本机 SQLite，AI 分析经加密代理转发，不留存
 
 ---
 
@@ -126,9 +126,10 @@ Prompt 设计强调：**温暖、好奇、不评判、非诊断**。System Promp
 |------|------|
 | **框架** | Flutter 3 · Android 优先（minSdk 24+） |
 | **状态管理** | Riverpod |
-| **本地存储** | SQLite（sqflite），无自建后端 |
+| **本地存储** | SQLite（sqflite） |
 | **AI** | DeepSeek API（OpenAI 兼容接口），Prompt 分层设计 |
 | **语音转写** | 阿里云 NLS |
+| **AI 代理后端** | 阿里云函数计算（FC），Key 存服务端，客户端零配置 |
 | **情境数据** | Open-Meteo + 设备定位 |
 | **UI** | 暖羊皮纸手绘风 · CustomPainter 自定义图标 |
 
@@ -140,8 +141,6 @@ Prompt 设计强调：**温暖、好奇、不评判、非诊断**。System Promp
 
 - Flutter SDK ≥ 3.11（运行 `flutter doctor` 检查）
 - Android Studio / Android SDK
-- [DeepSeek API Key](https://platform.deepseek.com)（必填）
-- 阿里云 NLS 凭证（可选，语音功能）
 
 ### 1. 克隆仓库
 
@@ -150,29 +149,14 @@ git clone https://github.com/Eggnite-518/Oddly.git
 cd Oddly/oddly
 ```
 
-### 2. 配置环境变量
-
-在 `oddly/` 目录创建 `.env`（已在 `.gitignore` 中，不会提交）：
-
-```env
-DEEPSEEK_API_KEY=sk-your-deepseek-key
-
-# 可选：语音转文字
-ALI_KEY_ID=your-access-key-id
-ALI_KEY_SECRET=your-access-key-secret
-ALI_NLS_APP_KEY=your-nls-app-key
-```
-
-> ⚠️ 请勿将 `.env` 或真实 API Key 提交到 Git，也不要打包进公开发布的 APK。
-
-### 3. 安装依赖并运行
+### 2. 安装依赖并运行
 
 ```bash
 flutter pub get
 flutter run
 ```
 
-### 4. 构建 Release APK
+### 3. 构建 Release APK
 
 ```bash
 flutter build apk --release
@@ -180,6 +164,8 @@ flutter build apk --release
 
 产物：`oddly/build/app/outputs/flutter-apk/app-release.apk`  
 可上传至 [GitHub Releases](https://github.com/Eggnite-518/Oddly/releases) 供他人下载。
+
+> AI 与语音功能通过官方代理后端提供，无需开发者自行配置 API Key。
 
 ---
 
@@ -266,8 +252,8 @@ oddly/lib/
 <details>
 <summary><strong>🔒 隐私说明（点击展开）</strong></summary>
 
-- **本地优先**：想法正文、对话历史、洞察卡片默认仅存储在本机
-- **第三方 API**：AI 分析与语音转写会将相关内容发送至 DeepSeek / 阿里云
+- **本地优先**：想法正文、对话历史、洞察卡片默认仅存储在本机 SQLite
+- **AI 代理**：AI 分析与语音转写经由官方代理后端转发至 DeepSeek / 阿里云，后端不留存内容
 - **无账号体系**：当前版本无用户注册与云端同步
 
 </details>

@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../core/constants/prompts.dart';
 import '../data/database/app_database.dart';
 
@@ -115,17 +114,15 @@ class AiPersonaResult {
 
 class AiService {
   late final Dio _dio;
-  static const String _baseUrl = 'https://api.deepseek.com/v1';
+  static const String _baseUrl = 'https://oddly-backend-euyqpaxdet.cn-hangzhou.fcapp.run/v1';
   static const String _model = 'deepseek-chat';
 
   AiService() {
-    final apiKey = dotenv.env['DEEPSEEK_API_KEY'] ?? '';
     _dio = Dio(BaseOptions(
       baseUrl: _baseUrl,
       connectTimeout: const Duration(seconds: 30),
-      receiveTimeout: const Duration(seconds: 120), // 洞察生成需要更长时间
+      receiveTimeout: const Duration(seconds: 120),
       headers: {
-        'Authorization': 'Bearer $apiKey',
         'Content-Type': 'application/json',
       },
     ));
