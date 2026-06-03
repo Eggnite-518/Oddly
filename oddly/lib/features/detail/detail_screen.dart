@@ -756,7 +756,7 @@ class _DetailScreenState extends ConsumerState<DetailScreen>
                   .map((p) => _buildPatternTag(
                         context,
                         p,
-                        highFreq.contains(p.name),
+                        highFreq.any((s) => s.name == p.name),
                       ))
                   .toList(),
             ),
@@ -765,7 +765,9 @@ class _DetailScreenState extends ConsumerState<DetailScreen>
               const SizedBox(height: 10),
               GestureDetector(
                 onTap: () {
-                  // 通知 MainShell 切换到 Mirror tab（index=2），再 pop 回根路由
+                  // 通知 Mirror 页滚动到对应卡片，再切换 tab 并 pop 回根路由
+                  ref.read(mirrorHighlightPatternProvider.notifier).state =
+                      highFreq.first.name;
                   ref.read(shellTabProvider.notifier).state = 2;
                   Navigator.of(context).popUntil((route) => route.isFirst);
                 },
@@ -787,7 +789,7 @@ class _DetailScreenState extends ConsumerState<DetailScreen>
                       const SizedBox(width: 6),
                       Flexible(
                         child: Text(
-                          '「${highFreq.first}」已出现 ${highFreq.length >= 3 ? "3" : highFreq.length} 次以上 · 在 Mirror 查看哪几条想法触发了它',
+                          '「${highFreq.first.name}」已出现 ${highFreq.first.count} 次 · 点击前往 Mirror 查看',
                           style: GoogleFonts.nunito(
                             fontSize: 12,
                             color: AppColors.accentDeep,

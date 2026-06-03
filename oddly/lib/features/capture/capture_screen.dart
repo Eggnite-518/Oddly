@@ -395,8 +395,11 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
                 textInputAction: TextInputAction.newline,
               ),
             ),
-            // 提示语叠在顶部，有内容后淡出
-            AnimatedOpacity(
+          // 提示语叠在顶部，有内容后淡出
+          Positioned(
+            top: 0,
+            left: 0,
+            child: AnimatedOpacity(
               opacity: _hasContent ? 0.0 : 1.0,
               duration: const Duration(milliseconds: 200),
               child: IgnorePointer(
@@ -407,6 +410,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
                 ),
               ),
             ),
+          ),
         ],
       ),
     );

@@ -34,13 +34,13 @@ class CognitivePatternService {
     }
   }
 
-  /// 检查给定 patterns 中哪些已达到高频门槛（count >= 3）
-  Future<List<String>> getHighFrequencyPatterns(
+  /// 检查给定 patterns 中哪些已达到高频门槛（count >= 5），返回完整 stat 对象
+  Future<List<CognitivePatternStat>> getHighFrequencyPatterns(
       List<String> patterns) async {
-    final result = <String>[];
+    final result = <CognitivePatternStat>[];
     for (final p in patterns) {
       final stat = await _db.getCognitivePatternStat(p);
-      if (stat != null && stat.isHighFrequency) result.add(p);
+      if (stat != null && stat.isHighFrequency) result.add(stat);
     }
     return result;
   }

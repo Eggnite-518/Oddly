@@ -318,7 +318,7 @@ class CognitivePatternStat {
     required this.lastSeenAt,
   });
 
-  bool get isHighFrequency => count >= 3;
+  bool get isHighFrequency => count >= 5;
 
   Map<String, dynamic> toMap() => {
         'name': name,
@@ -423,7 +423,48 @@ class AppDatabase {
       version: 5,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
+      onOpen: _onOpen,
     );
+  }
+
+  /// 修复 cognitive_pattern_stats 中的孤立 thought_id（对应想法已被删除）
+  /// 同时确保 count 与清理后的 thought_ids 长度一致
+  Future<void> _onOpen(Database db) async {
+    final rows = await db.query('cognitive_pattern_stats');
+    for (final row in rows) {
+      final name = row['name'] as String;
+      final rawIds = (row['thought_ids'] as String? ?? '')
+          .split(',')
+          .where((s) => s.isNotEmpty)
+          .toList();
+      if (rawIds.isEmpty) continue;
+
+      // 查哪些 ID 在 thoughts 表里实际存在
+      final placeholders = rawIds.map((_) => '?').join(',');
+      final existing = await db.query(
+        'thoughts',
+        columns: ['id'],
+        where: 'id IN ($placeholders)',
+        whereArgs: rawIds,
+      );
+      final existingIds = existing.map((r) => r['id'].toString()).toSet();
+      final validIds = rawIds.where(existingIds.contains).toList();
+
+      final storedCount = row['count'] as int;
+      if (validIds.length != rawIds.length || storedCount != validIds.length) {
+        if (validIds.isEmpty) {
+          await db.delete('cognitive_pattern_stats',
+              where: 'name = ?', whereArgs: [name]);
+        } else {
+          await db.update(
+            'cognitive_pattern_stats',
+            {'count': validIds.length, 'thought_ids': validIds.join(',')},
+            where: 'name = ?',
+            whereArgs: [name],
+          );
+        }
+      }
+    }
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -639,6 +680,33 @@ class AppDatabase {
   // 级联删除：thoughts + ai_conversations + insight_cards + thought_links
   Future<void> deleteThought(int id) async {
     final d = await db;
+
+    // 删除前先读取关联的思维惯性，以便事后同步统计
+    final insightRows = await d.query(
+      'insight_cards',
+      columns: ['cognitive_patterns'],
+      where: 'thought_id = ?',
+      whereArgs: [id],
+    );
+    final affectedPatternNames = <String>{};
+    for (final row in insightRows) {
+      final raw = row['cognitive_patterns'] as String? ?? '';
+      if (raw.isNotEmpty) {
+        try {
+          final list = jsonDecode(raw) as List;
+          for (final e in list) {
+            final name = (e as Map<String, dynamic>)['name'] as String? ?? '';
+            if (name.isNotEmpty) affectedPatternNames.add(name);
+          }
+        } catch (_) {
+          // 旧格式：逗号分隔名称
+          for (final name in raw.split(',').where((s) => s.isNotEmpty)) {
+            affectedPatternNames.add(name);
+          }
+        }
+      }
+    }
+
     await d.transaction((txn) async {
       await txn.delete('ai_conversations', where: 'thought_id = ?', whereArgs: [id]);
       await txn.delete('insight_cards', where: 'thought_id = ?', whereArgs: [id]);
@@ -650,9 +718,46 @@ class AppDatabase {
       await txn.delete('thoughts', where: 'id = ?', whereArgs: [id]);
     });
 
+    // 同步更新思维惯性统计：移除该 thought_id，重算 count
+    await _syncPatternStatsAfterDelete(id, affectedPatternNames);
+
     // 同步更新暗流强度：从所有引用了该 thought 的暗流里移除 id，重算强度
     // 若某条暗流的 thought_ids 因此归零，则直接删除该暗流
     await _syncCurrentsAfterDelete(id);
+  }
+
+  Future<void> _syncPatternStatsAfterDelete(
+      int deletedThoughtId, Set<String> patternNames) async {
+    if (patternNames.isEmpty) return;
+    final d = await db;
+    for (final name in patternNames) {
+      final rows = await d.query(
+        'cognitive_pattern_stats',
+        where: 'name = ?',
+        whereArgs: [name],
+        limit: 1,
+      );
+      if (rows.isEmpty) continue;
+      final row = rows.first;
+      final ids = (row['thought_ids'] as String? ?? '')
+          .split(',')
+          .where((s) => s.isNotEmpty)
+          .map(int.tryParse)
+          .whereType<int>()
+          .where((tid) => tid != deletedThoughtId)
+          .toList();
+      if (ids.isEmpty) {
+        await d.delete('cognitive_pattern_stats',
+            where: 'name = ?', whereArgs: [name]);
+      } else {
+        await d.update(
+          'cognitive_pattern_stats',
+          {'count': ids.length, 'thought_ids': ids.join(',')},
+          where: 'name = ?',
+          whereArgs: [name],
+        );
+      }
+    }
   }
 
   Future<void> _syncCurrentsAfterDelete(int deletedThoughtId) async {

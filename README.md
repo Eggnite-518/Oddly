@@ -165,7 +165,7 @@ flutter build apk --release
 产物：`oddly/build/app/outputs/flutter-apk/app-release.apk`  
 可上传至 [GitHub Releases](https://github.com/Eggnite-518/Oddly/releases) 供他人下载。
 
-> AI 与语音功能通过官方代理后端提供，无需开发者自行配置 API Key。
+> AI 与语音功能通过代理后端提供，无需开发者自行配置 API Key。
 
 ---
 

@@ -31,8 +31,8 @@ class DetailState {
   final bool isSwitchingPerspective;
   // 思维惯性：来自第一张卡片，全部视角共享
   final List<CognitivePatternItem> primaryCognitivePatterns;
-  // 已达到高频门槛（≥3次）的模式名称列表
-  final List<String> highFrequencyPatterns;
+  // 已达到高频门槛（≥5次）的完整 stat 列表
+  final List<CognitivePatternStat> highFrequencyPatterns;
 
   int get totalPerspectives =>
       recommendedFrameworks.isEmpty ? 1 : 1 + recommendedFrameworks.length;
@@ -51,7 +51,7 @@ class DetailState {
     this.recommendedFrameworks = const [],
     this.isSwitchingPerspective = false,
     this.primaryCognitivePatterns = const [],
-    this.highFrequencyPatterns = const [],
+    this.highFrequencyPatterns = const <CognitivePatternStat>[],
   });
 
   DetailState copyWith({
@@ -66,7 +66,7 @@ class DetailState {
     List<String>? recommendedFrameworks,
     bool? isSwitchingPerspective,
     List<CognitivePatternItem>? primaryCognitivePatterns,
-    List<String>? highFrequencyPatterns,
+    List<CognitivePatternStat>? highFrequencyPatterns,
     bool clearInsight = false,
     bool clearQuestion = false,
     bool clearConvId = false,
@@ -120,7 +120,7 @@ class ThoughtDetailNotifier extends StateNotifier<DetailState> {
       // ① 已有洞察卡片 → 直接展示
       if (insightCard != null) {
         // 高频模式查询单独 try，避免异常影响整个 init 流程
-        List<String> highFreq = [];
+        List<CognitivePatternStat> highFreq = [];
         if (insightCard.cognitivePatterns.isNotEmpty) {
           try {
             highFreq = await CognitivePatternService.instance

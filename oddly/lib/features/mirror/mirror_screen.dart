@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_decorations.dart';
 import '../../data/database/app_database.dart';
+import '../../core/shell_tab_provider.dart';
 import '../../features/actions/action_item_provider.dart';
 import '../../features/actions/action_list_screen.dart';
 import '../../features/detail/detail_screen.dart';
@@ -22,6 +23,8 @@ class MirrorScreen extends ConsumerStatefulWidget {
 class _MirrorScreenState extends ConsumerState<MirrorScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  final ScrollController _patternsScrollController = ScrollController();
+  final Map<String, GlobalKey> _patternKeys = {};
 
   @override
   void initState() {
@@ -32,12 +35,32 @@ class _MirrorScreenState extends ConsumerState<MirrorScreen>
   @override
   void dispose() {
     _tabController.dispose();
+    _patternsScrollController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(mirrorProvider);
+
+    // 监听高频模式跳转请求：切到「思维惯性」子 tab 并滚动定位
+    ref.listen<String?>(mirrorHighlightPatternProvider, (_, patternName) {
+      if (patternName == null || !mounted) return;
+      _tabController.animateTo(1);
+      Future.delayed(const Duration(milliseconds: 450), () {
+        if (!mounted) return;
+        final key = _patternKeys[patternName];
+        if (key?.currentContext != null) {
+          Scrollable.ensureVisible(
+            key!.currentContext!,
+            duration: const Duration(milliseconds: 400),
+            curve: Curves.easeOutCubic,
+            alignment: 0.1,
+          );
+        }
+        ref.read(mirrorHighlightPatternProvider.notifier).state = null;
+      });
+    });
 
     return Scaffold(
       backgroundColor: AppColors.pageBg,
@@ -201,11 +224,15 @@ class _MirrorScreenState extends ConsumerState<MirrorScreen>
       backgroundColor: AppColors.cardBg,
       onRefresh: () => ref.read(mirrorProvider.notifier).reload(),
       child: ListView(
+        controller: _patternsScrollController,
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
         children: [
           _buildPatternSummary(stats),
           const SizedBox(height: 20),
-          ...stats.map((s) => _PatternCard(stat: s)),
+          ...stats.map((s) {
+            final key = _patternKeys.putIfAbsent(s.name, () => GlobalKey());
+            return _PatternCard(key: key, stat: s);
+          }),
           const SizedBox(height: 16),
           _buildPatternFootnote(),
         ],
@@ -923,7 +950,7 @@ class _PatternEmptyState extends StatelessWidget {
 
 class _PatternCard extends StatelessWidget {
   final CognitivePatternStat stat;
-  const _PatternCard({required this.stat});
+  const _PatternCard({super.key, required this.stat});
 
   void _showLinkedThoughts(BuildContext context) {
     HapticFeedback.lightImpact();
@@ -1019,7 +1046,7 @@ class _PatternCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
-                    '× ${stat.count}',
+                    '× ${stat.thoughtIds.length}',
                     style: GoogleFonts.caveat(
                       fontSize: 16,
                       color: isHighFreq
