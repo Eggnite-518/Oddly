@@ -154,10 +154,14 @@ flutter run
 ### 3. 构建 Release APK
 
 ```bash
-flutter build apk --release
+cd oddly
+chmod +x build_release.sh   # 首次需要
+./build_release.sh
 ```
 
-产物：`oddly/build/app/outputs/flutter-apk/app-release.apk`
+产物：`oddly/build/app/outputs/flutter-apk/Oddly-v1.0.0.apk`（版本号随 `pubspec.yaml` 变化）
+
+> 说明：`flutter build apk` 会固定输出 `app-release.apk`，脚本会在打包完成后自动重命名。
 
 > AI 与语音功能通过代理后端提供，无需开发者自行配置 API Key。
 
