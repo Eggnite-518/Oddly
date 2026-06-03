@@ -5,7 +5,7 @@
 <h1 align="center">Oddly · 你的潜意识侦探</h1>
 
 <p align="center">
-  <strong>接住那些一闪而过的想法，用 AI 引导反思，在本地安全地探索水面之下的自己</strong>
+  <strong>接住那些一闪而过的想法，用 AI 引导反思，安全地探索水面之下的自己</strong>
 </p>
 
 <p align="center">
@@ -79,7 +79,7 @@ Oddly 不是又一个 AI 日记，而是一条 **Catch → Trace → Mirror → 
          │    └─ 用户跳过
          │
          └─ 生成洞察卡片 + 情绪标签
-              ├─ 提取暗流（Mirror 层）
+              ├─ 提取暗流
               ├─ 聚合认知模式统计
               └─ 行动建议可收藏 → 行动清单 → 首页提醒
 ```
@@ -88,11 +88,10 @@ Prompt 设计强调：**温暖、好奇、不评判、非诊断**。System Promp
 
 </details>
 
----
+
 
 ## 📸 应用截图
 
-> 将截图放入 `docs/screenshots/` 目录，替换下方占位路径即可。
 
 ### 核心流程
 
@@ -163,7 +162,6 @@ flutter build apk --release
 ```
 
 产物：`oddly/build/app/outputs/flutter-apk/app-release.apk`  
-可上传至 [GitHub Releases](https://github.com/Eggnite-518/Oddly/releases) 供他人下载。
 
 > AI 与语音功能通过代理后端提供，无需开发者自行配置 API Key。
 
@@ -182,7 +180,7 @@ flutter build apk --release
 | 暗流识别 + 认知模式统计 | |
 | 情境记录（时间 / 天气 / 位置） | |
 
-完整产品规划见 [`prd.md`](prd.md)。
+完整产品规划见 [`prd_v2.md`](prd_v2.md)。
 
 ---
 
