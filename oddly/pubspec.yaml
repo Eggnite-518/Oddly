@@ -1,7 +1,7 @@
 name: oddly
 description: "Your subconscious detective"
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.0.1+3
 
 environment:
   sdk: ^3.11.5

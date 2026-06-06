@@ -469,6 +469,31 @@ class AppDatabase {
         }
       }
     }
+
+    // 修复 action_items 中关联想法已被删除但 source_deleted 仍为 0 的旧数据
+    final actionRows = await db.query(
+      'action_items',
+      columns: ['id', 'thought_id'],
+      where: 'source_deleted = 0',
+    );
+    for (final row in actionRows) {
+      final actionId = row['id'] as int;
+      final thoughtId = row['thought_id'] as int;
+      final exists = await db.query(
+        'thoughts',
+        columns: ['id'],
+        where: 'id = ?',
+        whereArgs: [thoughtId],
+      );
+      if (exists.isEmpty) {
+        await db.update(
+          'action_items',
+          {'source_deleted': 1},
+          where: 'id = ?',
+          whereArgs: [actionId],
+        );
+      }
+    }
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
