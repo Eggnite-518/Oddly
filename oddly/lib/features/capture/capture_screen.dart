@@ -318,21 +318,30 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
             ref.read(actionItemProvider.notifier).complete(featured.id!),
         onSkip: () =>
             ref.read(actionItemProvider.notifier).dismissOnHome(featured.id!),
-        onTapContent: () => Navigator.of(context).push(
-          PageRouteBuilder(
-            pageBuilder: (_, __, ___) =>
-                DetailScreen(thoughtId: featured.thoughtId),
-            transitionsBuilder: (_, animation, __, child) => SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(1, 0),
-                end: Offset.zero,
-              ).animate(CurvedAnimation(
-                  parent: animation, curve: Curves.easeOutCubic)),
-              child: child,
-            ),
-            transitionDuration: const Duration(milliseconds: 300),
-          ),
-        ),
+        onTapContent: featured.sourceDeleted
+            ? () => ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('来源想法已删除'),
+                    duration: Duration(seconds: 2),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                )
+            : () => Navigator.of(context).push(
+                  PageRouteBuilder(
+                    pageBuilder: (_, __, ___) =>
+                        DetailScreen(thoughtId: featured.thoughtId),
+                    transitionsBuilder: (_, animation, __, child) =>
+                        SlideTransition(
+                      position: Tween<Offset>(
+                        begin: const Offset(1, 0),
+                        end: Offset.zero,
+                      ).animate(CurvedAnimation(
+                          parent: animation, curve: Curves.easeOutCubic)),
+                      child: child,
+                    ),
+                    transitionDuration: const Duration(milliseconds: 300),
+                  ),
+                ),
         onTapList: () => Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => const ActionListScreen()),
         ),

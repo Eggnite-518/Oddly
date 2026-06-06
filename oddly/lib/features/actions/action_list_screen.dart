@@ -110,7 +110,9 @@ class ActionListScreen extends ConsumerWidget {
                     .togglePin(item.id!, !item.isPinned),
                 onDelete: () =>
                     ref.read(actionItemProvider.notifier).remove(item.id!),
-                onTap: () => _openDetail(context, item.thoughtId),
+                onTap: item.sourceDeleted
+                    ? () => _showSourceDeletedTip(context)
+                    : () => _openDetail(context, item.thoughtId),
               )),
         ],
         if (completed.isNotEmpty) ...[
@@ -120,10 +122,22 @@ class ActionListScreen extends ConsumerWidget {
                 item: item,
                 onDelete: () =>
                     ref.read(actionItemProvider.notifier).remove(item.id!),
-                onTap: () => _openDetail(context, item.thoughtId),
+                onTap: item.sourceDeleted
+                    ? () => _showSourceDeletedTip(context)
+                    : () => _openDetail(context, item.thoughtId),
               )),
         ],
       ],
+    );
+  }
+
+  void _showSourceDeletedTip(BuildContext context) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('来源想法已删除'),
+        duration: Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 
@@ -372,13 +386,24 @@ class _ActionTile extends StatelessWidget {
                   const SizedBox(height: 4),
                   Row(
                     children: [
-                      Icon(Icons.link_rounded,
-                          size: 11, color: AppColors.textHint),
+                      Icon(
+                        item.sourceDeleted
+                            ? Icons.link_off_rounded
+                            : Icons.link_rounded,
+                        size: 11,
+                        color: item.sourceDeleted
+                            ? AppColors.textHint.withValues(alpha: 0.5)
+                            : AppColors.textHint,
+                      ),
                       const SizedBox(width: 3),
                       Text(
-                        '来自一条想法',
+                        item.sourceDeleted ? '来源想法已删除' : '来自一条想法',
                         style: GoogleFonts.nunito(
-                            fontSize: 11, color: AppColors.textHint),
+                          fontSize: 11,
+                          color: item.sourceDeleted
+                              ? AppColors.textHint.withValues(alpha: 0.5)
+                              : AppColors.textHint,
+                        ),
                       ),
                       if (isCompleted && item.completedAt != null) ...[
                         const SizedBox(width: 8),

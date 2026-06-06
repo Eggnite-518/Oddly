@@ -353,6 +353,7 @@ class ActionItem {
   final int thoughtId;
   final ActionStatus status;
   final bool isPinned;
+  final bool sourceDeleted;
   final DateTime createdAt;
   final DateTime? completedAt;
 
@@ -363,6 +364,7 @@ class ActionItem {
     required this.thoughtId,
     this.status = ActionStatus.pending,
     this.isPinned = false,
+    this.sourceDeleted = false,
     required this.createdAt,
     this.completedAt,
   });
@@ -374,6 +376,7 @@ class ActionItem {
         'thought_id': thoughtId,
         'status': status.name,
         'is_pinned': isPinned ? 1 : 0,
+        'source_deleted': sourceDeleted ? 1 : 0,
         'created_at': createdAt.toIso8601String(),
         'completed_at': completedAt?.toIso8601String(),
       };
@@ -388,6 +391,7 @@ class ActionItem {
           orElse: () => ActionStatus.pending,
         ),
         isPinned: (m['is_pinned'] as int? ?? 0) == 1,
+        sourceDeleted: (m['source_deleted'] as int? ?? 0) == 1,
         createdAt: DateTime.parse(m['created_at'] as String),
         completedAt: m['completed_at'] != null
             ? DateTime.parse(m['completed_at'] as String)
@@ -420,7 +424,7 @@ class AppDatabase {
     final path = join(dbPath, 'oddly.db');
     return openDatabase(
       path,
-      version: 5,
+      version: 6,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
       onOpen: _onOpen,
@@ -519,6 +523,11 @@ class AppDatabase {
         )
       ''');
     }
+    if (oldVersion < 6) {
+      await db.execute(
+        'ALTER TABLE action_items ADD COLUMN source_deleted INTEGER NOT NULL DEFAULT 0',
+      );
+    }
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -608,6 +617,7 @@ class AppDatabase {
         thought_id INTEGER NOT NULL,
         status TEXT NOT NULL DEFAULT 'pending',
         is_pinned INTEGER NOT NULL DEFAULT 0,
+        source_deleted INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         completed_at TEXT
       )
@@ -714,6 +724,13 @@ class AppDatabase {
         'thought_links',
         where: 'thought_id_a = ? OR thought_id_b = ?',
         whereArgs: [id, id],
+      );
+      // 保留行动，但标记来源已删除
+      await txn.update(
+        'action_items',
+        {'source_deleted': 1},
+        where: 'thought_id = ?',
+        whereArgs: [id],
       );
       await txn.delete('thoughts', where: 'id = ?', whereArgs: [id]);
     });
